@@ -1,0 +1,6 @@
+python-dotenv
+google
+google.genai
+pyupbit
+
+# pip install -r .\requirments.txt 로 실행 시 설치됨.

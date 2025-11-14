@@ -1,0 +1,7 @@
+# Git이 무시할 파일/폴더 목록
+__pycache__/
+.env
+*.pyc
+venv/
+.ipynb_checkpoints/
+TRADING_LOG/ # 로그 저장 폴더
