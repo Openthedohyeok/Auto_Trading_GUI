@@ -9,7 +9,7 @@ import datetime
 import pandas as pd # 🚨 추가: 엑셀 파일 저장을 위해 pandas import
 
 # 📌 버전 관리 변수 설정
-APP_VERSION = "v00.00.00"
+APP_VERSION = "v00.00.01" # 🚨 수정: 버전 v00.00.01로 업데이트
 LOG_DIR = "TRADING_LOG" # 로그 저장 폴더명
 
 class AutoTradingGUI:
@@ -95,6 +95,16 @@ class AutoTradingGUI:
         self.status_text = tk.StringVar()
         self.status_label = ttk.Label(self.status_frame, textvariable=self.status_text, 
                                       font=("Malgun Gothic", 12, "bold"), foreground="blue")
+        
+        # 🚨 추가: 잔고 표시 변수
+        self.balance_text = tk.StringVar(value="잔고 정보 (KRW)")
+        
+        # 🚨 추가: 잔고 확인 버튼
+        self.check_balance_button = ttk.Button(self.status_frame, text="현재 잔고 보기", command=self._check_balance)
+        
+        # 🚨 추가: 잔고 표시 레이블
+        self.balance_label = ttk.Label(self.status_frame, textvariable=self.balance_text, 
+                                      font=("Malgun Gothic", 10), foreground="green")
 
         # 2. 트레이딩 옵션 ------------------------------------------
         self.mode_var = tk.StringVar(value='SIMULATION')
@@ -163,8 +173,10 @@ class AutoTradingGUI:
         # 우측 로그 패널 배치 (pack)
         self.log_frame.pack(padx=5, pady=5, fill="both", expand=True)
 
-        # 1. 현재 상태 (pack)
-        self.status_label.pack(fill="x", pady=5)
+        # 1. 현재 상태 (pack) 🚨 잔고 버튼 및 레이블 추가에 따른 레이아웃 변경
+        self.status_label.pack(fill="x", pady=(5, 0)) 
+        self.check_balance_button.pack(fill="x", pady=5)
+        self.balance_label.pack(fill="x", pady=(0, 5))
         
         # 2. 트레이딩 옵션 (grid)
         self.options_frame.columnconfigure(1, weight=1)
@@ -212,6 +224,45 @@ class AutoTradingGUI:
         else:
             self.ma_timeframe_label.config(state='disabled')
             self.ma_timeframe_menu.config(state='disabled')
+            
+    def _check_balance(self):
+        """현재 KRW 잔고를 조회하여 GUI에 표시"""
+        
+        def fetch_balance():
+            # API 키 로드 여부 확인
+            if not self.upbit:
+                self.master.after(0, lambda: self.balance_text.set("API 키 로드 실패"))
+                return
+            
+            # GUI 업데이트: 버튼 잠금 및 메시지 표시 (GUI 스레드에서 실행)
+            self.master.after(0, lambda: self.check_balance_button.config(state='disabled'))
+            self.master.after(0, lambda: self.balance_text.set("잔고 조회 중..."))
+            self.master.update()
+            
+            try:
+                # KRW 잔고 조회
+                balance = self.upbit.get_balance("KRW") 
+                
+                if balance is not None:
+                    # 잔고 표시: 쉼표 형식으로 포맷팅
+                    display_text = f"현재 잔고: {balance:,.0f} KRW"
+                    self._log(f"잔고 조회 성공: {balance:,.0f} KRW")
+                    
+                    self.master.after(0, lambda: self.balance_text.set(display_text))
+                else:
+                    self.master.after(0, lambda: self.balance_text.set("잔고 조회 실패 (응답 없음)"))
+                    self._log("잔고 조회 실패 (응답 없음). API 키 또는 권한 확인 필요.")
+                    
+            except Exception as e:
+                error_msg = f"잔고 조회 중 오류 발생: {type(e).__name__}"
+                self._log(error_msg)
+                self.master.after(0, lambda: self.balance_text.set(f"오류: {type(e).__name__}"))
+
+            # GUI 업데이트: 버튼 잠금 해제 (GUI 스레드에서 실행)
+            self.master.after(0, lambda: self.check_balance_button.config(state='normal'))
+
+        # 잔고 조회를 새로운 스레드에서 실행 (GUI freeze 방지)
+        threading.Thread(target=fetch_balance, daemon=True).start()
 
     def _log_no_source(self, message):
         """실시간 로그를 Text 위젯에 추가 (소스 태그 없음)"""
