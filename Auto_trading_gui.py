@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.00.05" 
+APP_VERSION = "v00.00.06" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -55,6 +55,7 @@ class AutoTradingGUI:
         self.status_text.set("시작 대기 중")
         self.trading_thread = None 
         self.log_save_thread = None
+        self.shutdown_timer_thread = None
         
         self._log_no_source(f"Auto Trading ({APP_VERSION})")
         self._log_no_source(f"디버그 모드 (캔들 로깅): {'활성화' if DEBUG_MODE_CANDLE else '비활성화'}")
@@ -147,6 +148,10 @@ class AutoTradingGUI:
         self.log_save_time_var = tk.StringVar(value='24') 
         self.log_save_time_label = ttk.Label(self.etc_frame, text="로그 저장 주기 (시간):")
         self.log_save_time_entry = ttk.Entry(self.etc_frame, textvariable=self.log_save_time_var, font=('Malgun Gothic', 10))
+
+        self.shutdown_time_var = tk.StringVar(value='') 
+        self.shutdown_time_label = ttk.Label(self.etc_frame, text="예약 종료 (시간 후):")
+        self.shutdown_time_entry = ttk.Entry(self.etc_frame, textvariable=self.shutdown_time_var, font=('Malgun Gothic', 10))
         
         self.start_button = ttk.Button(self.button_frame, text="트레이딩 시작", command=self._handle_start)
         self.stop_button = ttk.Button(self.button_frame, text="트레이딩 종료", command=self._stop_trading, state='disabled')
@@ -205,6 +210,8 @@ class AutoTradingGUI:
         self.etc_frame.columnconfigure(1, weight=1)
         self.log_save_time_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.log_save_time_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.shutdown_time_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.shutdown_time_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
         # 시작/종료 버튼 (pack)
         self.start_button.pack(side=tk.LEFT, expand=True, fill="x", padx=5)
@@ -445,11 +452,16 @@ class AutoTradingGUI:
             load_time = int(self.data_load_time_var.get())
             log_save_time_hours = int(self.log_save_time_var.get())
             trade_ratio = int(self.trade_ratio_var.get())
+
+            shutdown_time_input = self.shutdown_time_var.get().strip()
+            shutdown_time_hours = None
+            if shutdown_time_input:
+                shutdown_time_hours = int(shutdown_time_input)
             
-            if load_time <= 0 or log_save_time_hours <= 0 or not (0 <= trade_ratio <= 100):
+            if load_time <= 0 or log_save_time_hours <= 0 or not (0 <= trade_ratio <= 100) or (shutdown_time_hours is not None and shutdown_time_hours <= 0):
                 raise ValueError
         except ValueError:
-            messagebox.showerror("입력 오류", "설정값(로딩 시간, 로그 주기, 트레이딩 금액)을 확인해 주세요.")
+            messagebox.showerror("입력 오류", "설정값(로딩 시간, 로그 주기, 트레이딩 금액, 예약 종료 시간)을 확인해 주세요.")
             return
 
         self.trading_active = True
@@ -485,6 +497,10 @@ class AutoTradingGUI:
         else:
              self._log(f"매매 희망 종목: {tickers}")
         self._log(f"로그 저장 주기: {log_save_time_hours} 시간")
+        if shutdown_time_hours is not None:
+            self._log(f"예약 종료: {shutdown_time_hours} 시간 후")
+        else:
+            self._log("예약 종료: 설정되지 않음 (수동 종료)")
         self._log("--------------------------")
 
         self.trading_thread = threading.Thread(target=self._run_trading_loop, 
@@ -496,6 +512,32 @@ class AutoTradingGUI:
                                                 args=(log_save_time_hours,))
         self.log_save_thread.daemon = True
         self.log_save_thread.start()
+
+        if shutdown_time_hours is not None:
+            self.shutdown_timer_thread = threading.Thread(target=self._run_shutdown_timer,
+                                                          args=(shutdown_time_hours,))
+            self.shutdown_timer_thread.daemon = True
+            self.shutdown_timer_thread.start()
+
+    def _run_shutdown_timer(self, shutdown_time_hours):
+        """설정된 시간 후 트레이딩을 종료하는 타이머 루프"""
+        shutdown_time_seconds = shutdown_time_hours * 3600
+        self._log(f"예약 종료 타이머 시작. {shutdown_time_hours} 시간 ({shutdown_time_seconds}초) 후 종료 예정.")
+
+        try:
+            for _ in range(shutdown_time_seconds):
+                if not self.trading_active:
+                    break
+                time.sleep(1)
+            
+            if self.trading_active:
+                self._log("예약 종료 시간이 도달했습니다. 트레이딩을 종료합니다.")
+                self.master.after(0, self._stop_trading)
+
+        except Exception as e:
+            self._log(f"예약 종료 타이머 중 오류 발생: {e}")
+        
+        self._log("예약 종료 타이머 루프 종료.")
 
     def _run_log_save_loop(self, save_interval_hours):
         """설정된 시간마다 로그를 파일로 저장하는 루프"""
