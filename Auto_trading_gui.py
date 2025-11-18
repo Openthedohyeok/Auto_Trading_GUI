@@ -687,6 +687,15 @@ class AutoTradingGUI:
             if ma_trend_ok and is_breakout:
                 raw_action = "Buy"
                 self._log(f"매수 조건 만족: 정배열({ma_trend_ok}), 50MA 상향 돌파({is_breakout})")
+                
+                if mode == 'TRADING':
+                    self._execute_buy(ticker, current_price) # 실제 매수 주문 실행
+                    # 실제 주문 체결을 기다려야 하지만, 여기서는 즉시 holdings에 기록
+                    # 정확한 체결 정보를 받기 전까지는 임시 기록
+                    self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
+                elif mode == 'SIMULATION':
+                     # SIMULATION 모드에서만 가상 매수 기록
+                     self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
             else:
                 # 매수 대기 중 로그 추가
                 if not ma_trend_ok:
