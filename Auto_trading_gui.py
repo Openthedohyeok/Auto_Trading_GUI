@@ -15,8 +15,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 📌 버전 관리 변수 설정
-APP_VERSION = "v00.00.02" 
-LOG_DIR = "TRADING_LOG" 
+APP_VERSION = "v00.00.03" 
+LOG_DIR = "../TRADING_LOG" 
 
 # 📌 전역 디버깅/개발 설정
 DEBUG_MODE_CANDLE = False 
@@ -377,7 +377,7 @@ class AutoTradingGUI:
                 os.makedirs(LOG_DIR)
             
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{LOG_DIR}/TRADING_LOG_{timestamp}.xlsx" 
+            filename = os.path.join(LOG_DIR, f"{prefix}LOG_{timestamp}.xlsx")
             
             log_content = self.log_text.get("1.0", tk.END).strip().split('\n')
             
