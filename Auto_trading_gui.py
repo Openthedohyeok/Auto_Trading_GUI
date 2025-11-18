@@ -15,7 +15,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 📌 버전 관리 변수 설정
-APP_VERSION = "v00.00.03" 
+APP_VERSION = "v00.00.04" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 📌 전역 디버깅/개발 설정
@@ -27,8 +27,7 @@ class AutoTradingGUI:
     def __init__(self, master):
         self.master = master
         master.title(f"Auto Trading ({APP_VERSION})")
-        # v00.00.03 기준 1500x900 유지
-        master.geometry("1500x900") 
+        master.geometry("2000x900") 
         
         load_dotenv()
         self.access_key = os.getenv("UPBIT_ACCESS_KEY")
@@ -219,8 +218,7 @@ class AutoTradingGUI:
 
     def _setup_chart(self):
         """Matplotlib Figure를 생성하고 Tkinter에 임베딩"""
-        # 🚨 v00.00.07: 차트 배경색 변경
-        self.fig = Figure(figsize=(8, 4), dpi=100, facecolor='#0d1117') # 전체 Figure 배경을 더 어둡게
+        self.fig = Figure(figsize=(12, 4), dpi=100, facecolor='#0d1117')
         self.ax = self.fig.add_subplot(111)
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
@@ -230,7 +228,6 @@ class AutoTradingGUI:
         self.toolbar = NavigationToolbar2Tk(self.canvas, self.chart_frame)
         self.toolbar.update()
         
-        # 🚨 v00.00.06: 초기 차트 제목, 축 레이블을 모두 빈 상태로 설정
         self.ax.set_title("")
         self.ax.set_xlabel("")
         self.ax.set_ylabel("")
@@ -238,7 +235,6 @@ class AutoTradingGUI:
         self.ax.tick_params(axis='x', colors='white')
         self.ax.tick_params(axis='y', colors='white')
         
-        # 🚨 v00.00.07: 플롯 영역 배경색 변경
         self.ax.set_facecolor('#161b22') # 플롯 영역 배경을 더 어둡게
         
         self.fig.tight_layout()
@@ -256,7 +252,7 @@ class AutoTradingGUI:
         # 1. 캔들 색상 및 높이 계산
         # 🚨 v00.00.06: 상승(종가 >= 시가)은 초록색, 하락(종가 < 시가)은 빨간색으로 변경
         up = plot_df['close'] >= plot_df['open']
-        col = np.where(up, 'green', 'red') 
+        col = np.where(up, '#27A199', '#E74C3C') 
         
         # 캔들 몸통 높이: |종가 - 시가|
         bar_height = abs(plot_df['close'] - plot_df['open'])
@@ -281,7 +277,7 @@ class AutoTradingGUI:
                      linestyle='-', linewidth=1.5, alpha=0.7) 
         
         # 5. 차트 제목 및 레이블 설정
-        self.ax.set_title(f"{self.target_ticker} ({timeframe_label})", fontsize=12, color='white')
+        self.ax.set_title(f"{self.target_ticker}", fontsize=12, color='white')
         self.ax.set_xlabel("Timeframe (Candle Index)", fontsize=10, color='white') 
         self.ax.set_ylabel("KRW", fontsize=10, color='white') 
         
@@ -665,7 +661,7 @@ class AutoTradingGUI:
 
             except Exception as e:
                 error_msg = f"트레이딩 루프 오류 발생: {type(e).__name__} - {e}"
-                self._log(error_msg)
+                self.log(error_msg)
                 self.master.after(0, lambda: self.status_text.set(f"오류 발생: {type(e).__name__}"))
                 time.sleep(5) 
         
