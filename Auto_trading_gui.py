@@ -15,7 +15,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 📌 버전 관리 변수 설정
-APP_VERSION = "v00.00.04" 
+APP_VERSION = "v0d.00.05" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 📌 전역 디버깅/개발 설정
@@ -46,6 +46,9 @@ class AutoTradingGUI:
         self.min_trade_volume = 0 
         self.holdings = {} 
         self.target_ticker = "N/A" 
+        
+        # 📌 '매수/매도 확인' 전략용 플래그
+        self.temp_buy_executed = False 
         
         self._create_frames()
         self._create_widgets()
@@ -114,7 +117,8 @@ class AutoTradingGUI:
         
         self.strategy_var = tk.StringVar(value='이동평균매매')
         self.strategy_label = ttk.Label(self.options_frame, text="전략 선택:")
-        self.strategy_options = ['이동평균매매', '불장단타왕_1']
+        # 📌 수정: '매수/매도 확인' 항목 추가
+        self.strategy_options = ['이동평균매매', '불장단타왕_1', '매수/매도 확인']
         self.strategy_menu = ttk.Combobox(self.options_frame, textvariable=self.strategy_var, values=self.strategy_options, state='readonly')
         self.strategy_menu.bind("<<ComboboxSelected>>", self._toggle_ma_options)
         
@@ -409,6 +413,12 @@ class AutoTradingGUI:
         tickers = [t.strip() for t in self.ticker_input_var.get().upper().split(',') if t.strip()]
         auto_select = self.auto_select_var.get()
         
+        # '매수/매도 확인' 전략 선택 시 종목 1개 필수 체크
+        if self.strategy_var.get() == '매수/매도 확인' and (not tickers or len(tickers) != 1):
+             messagebox.showwarning("종목 설정 오류", "매수/매도 확인 전략은 KRW 마켓 종목 1개만 입력해야 합니다.")
+             return
+             
+        
         if auto_select and self.mode_var.get() != 'DEVELOPMENT':
             dialog_title = "최소 거래 대금 설정"
             
@@ -436,7 +446,7 @@ class AutoTradingGUI:
                 self._log("최소 거래 대금 입력 오류.")
                 return
         
-        elif not tickers:
+        elif not tickers and self.strategy_var.get() != '매수/매도 확인':
              messagebox.showwarning("종목 설정 오류", "매매 희망 종목을 입력하거나 '종목 자동 선택'을 활성화해야 합니다.")
              return
              
@@ -468,6 +478,8 @@ class AutoTradingGUI:
         self.stop_button.config(state='normal')
         
         self.holdings = {}
+        # 📌 '매수/매도 확인' 전략용 플래그 초기화
+        self.temp_buy_executed = False 
 
         strategy = self.strategy_var.get()
         timeframe_label = self.ma_timeframe_var.get()
@@ -559,109 +571,211 @@ class AutoTradingGUI:
                 if not current_tickers:
                     status_msg = f"종목 탐색 중 / 대상 종목 없음"
                     self.master.after(0, lambda: self.status_text.set(status_msg))
-                else:
-                    target_ticker = current_tickers[0] 
-                    self.target_ticker = target_ticker 
-                    
-                    if target_ticker in pyupbit.get_tickers(fiat="KRW"):
-                        
-                        # 차트 표시를 위해 모든 모드에서 OHLCV 및 지표 데이터 로드
-                        selected_timeframe_label = self.ma_timeframe_var.get()
-                        selected_interval = timeframe_map.get(selected_timeframe_label, 'day')
-                        
-                        df = pyupbit.get_ohlcv(target_ticker, interval=selected_interval, count=400) 
-                        
-                        current_price = None
-                        if df is not None and len(df) >= 200:
-                            
-                            df['MA50'] = self._calculate_moving_average(df, 50)
-                            df['MA200'] = self._calculate_moving_average(df, 200)
-                            df['VWMA100'] = self._calculate_vwma(df, 100) 
+                    time.sleep(load_time)
+                    continue
 
-                            current_price = df.iloc[-1]['close'] 
-                            
-                            # 차트 업데이트 (모든 모드에서 데이터가 있으면 실행)
-                            self.master.after(0, lambda: self._draw_chart(df, selected_timeframe_label))
+                target_ticker = current_tickers[0] 
+                self.target_ticker = target_ticker 
+                
+                
+                # ----------------------------------------------------
+                # 📌 '매수/매도 확인' 로직 (테스트 후 반드시 제거)
+                # ----------------------------------------------------
+                if strategy == '매수/매도 확인':
+                    
+                    if mode != 'TRADING':
+                        self._log("경고: '매수/매도 확인' 전략은 TRADING 모드에서만 실제 주문을 실행합니다.")
+                        self.master.after(0, lambda: self.status_text.set("TRADING 모드로 변경 필요"))
+                        time.sleep(load_time)
+                        continue
                         
-                        # DEVELOPMENT Mode Specific Logging
-                        if is_development_mode and df is not None and len(df) >= 200:
+                    if not self.upbit:
+                        self._log("Upbit 객체 초기화 실패. API 키를 확인해 주세요.")
+                        self.master.after(0, lambda: self.status_text.set("API 오류로 종료합니다."))
+                        self.master.after(0, self._stop_trading) 
+                        return
+                    
+                    if target_ticker not in pyupbit.get_tickers(fiat="KRW"):
+                         self._log(f"잘못된 종목명: {target_ticker}. KRW 마켓 종목 1개만 입력해 주세요.")
+                         self.master.after(0, lambda: self.status_text.set("잘못된 종목명으로 종료합니다."))
+                         self.master.after(0, self._stop_trading) 
+                         return
+
+                    # --- 1. 매수 단계 (딱 한 번만 실행) ---
+                    if not self.temp_buy_executed:
+                        
+                        BUY_AMOUNT = 10000 # 1만원
+                        
+                        self._log(f"--- [매수/매도 확인] 테스트 시작: {target_ticker} {BUY_AMOUNT:,.0f}원 매수 시도 ---")
+                        self.master.after(0, lambda: self.status_text.set(f"{target_ticker} {BUY_AMOUNT:,.0f}원 매수 주문 중..."))
+
+                        try:
+                            # 시장가 매수 주문 (order_amount는 원화)
+                            buy_result = self.upbit.buy_market_order(target_ticker, BUY_AMOUNT)
                             
-                            ma50_current = df['MA50'].iloc[-1]
-                            ma200_current = df['MA200'].iloc[-1]
-                            vwma100_current = df['VWMA100'].iloc[-1]
+                            if buy_result is None or 'error' in buy_result:
+                                err_msg = buy_result.get('error', {}).get('message', '알 수 없는 오류') if buy_result else '응답 없음'
+                                raise Exception(err_msg)
+                                
+                            self._log(f"✅ 매수 주문 성공: UUID: {buy_result.get('uuid', 'N/A')}")
+                            self.temp_buy_executed = True
+                            
+                            # 주문 후 1분 대기 (매도 타이밍)
+                            self._log(f"매수 완료. 60초 대기 후 매도 주문을 실행합니다.")
+                            self.master.after(0, lambda: self.status_text.set(f"매수 완료. 60초 후 매도 예정..."))
+                            
+                            # **여기서는 load_time이 아닌 60초 대기**
+                            time.sleep(60) 
+                            
+                        except Exception as e:
+                            self._log(f"❌ 매수 실패: {e}")
+                            self.master.after(0, lambda: self.status_text.set(f"매수 실패로 종료합니다."))
+                            self.master.after(0, self._stop_trading)
+                            return
+                            
+                    # --- 2. 매도 단계 (매수 성공 후 실행) ---
+                    else:
+                        
+                        # 실제 잔고를 조회하여 전량 매도
+                        self._log(f"--- [매수/매도 확인] 매도 단계 시작: {target_ticker} 전량 매도 시도 ---")
+                        self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 전량 매도 주문 중..."))
+                        
+                        # 보유 수량 조회
+                        coin_symbol = target_ticker.split('-')[1]
+                        volume_to_sell = 0.0
+                        
+                        # pyupbit.get_balances() 대신 Upbit 객체의 get_balances() 사용 (API 키 필요)
+                        holdings = self.upbit.get_balances() 
+                        target_coin_balance = [bal for bal in holdings if bal['currency'] == coin_symbol]
+                        
+                        if target_coin_balance:
+                            volume_to_sell = float(target_coin_balance[0]['balance'])
+                            
+                            if volume_to_sell > 0:
+                                
+                                # 시장가 매도 주문 (volume은 코인 수량)
+                                sell_result = self.upbit.sell_market_order(target_ticker, volume_to_sell)
+                                
+                                if sell_result is None or 'error' in sell_result:
+                                     err_msg = sell_result.get('error', {}).get('message', '알 수 없는 오류') if sell_result else '응답 없음'
+                                     raise Exception(err_msg)
+                                     
+                                self._log(f"✅ 매도 주문 성공 (수량: {volume_to_sell}): UUID: {sell_result.get('uuid', 'N/A')}")
+                            else:
+                                self._log("경고: 보유 수량이 0입니다. 이미 매도되었거나 주문에 실패했을 수 있습니다.")
+                        else:
+                            self._log(f"경고: 보유 잔고 목록에서 {coin_symbol}을(를) 찾을 수 없습니다.")
+                            
+                        self._log("--- [매수/매도 확인] 테스트 종료. 루프를 멈춥니다. ---")
+                        self.master.after(0, lambda: self.status_text.set("매수/매도 테스트 완료"))
+                        self.master.after(0, self._stop_trading) 
+                        return # 루프 종료
+                
+                # ----------------------------------------------------
+                # (일반 트레이딩/개발 모드 로직은 여기에 위치)
+                # ----------------------------------------------------
+                
+                
+                if target_ticker in pyupbit.get_tickers(fiat="KRW"):
+                    
+                    # 차트 표시를 위해 모든 모드에서 OHLCV 및 지표 데이터 로드
+                    selected_timeframe_label = self.ma_timeframe_var.get()
+                    selected_interval = timeframe_map.get(selected_timeframe_label, 'day')
+                    
+                    df = pyupbit.get_ohlcv(target_ticker, interval=selected_interval, count=400) 
+                    
+                    current_price = None
+                    if df is not None and len(df) >= 200:
+                        
+                        df['MA50'] = self._calculate_moving_average(df, 50)
+                        df['MA200'] = self._calculate_moving_average(df, 200)
+                        df['VWMA100'] = self._calculate_vwma(df, 100) 
+
+                        current_price = df.iloc[-1]['close'] 
+                        
+                        # 차트 업데이트 (모든 모드에서 데이터가 있으면 실행)
+                        self.master.after(0, lambda: self._draw_chart(df, selected_timeframe_label))
+                    
+                    # DEVELOPMENT Mode Specific Logging
+                    if is_development_mode and df is not None and len(df) >= 200:
+                        
+                        ma50_current = df['MA50'].iloc[-1]
+                        ma200_current = df['MA200'].iloc[-1]
+                        vwma100_current = df['VWMA100'].iloc[-1]
+                        
+                        # 상태창 간소화
+                        status_msg = f"개발 모드 ({target_ticker}) @ {current_price:,.0f} 원 ({selected_timeframe_label} 로드 완료)"
+                        self.master.after(0, lambda: self.status_text.set(status_msg))
+                        
+                        # 로그에는 상세 정보 출력
+                        self._log(f"--- 개발 모드 데이터 로깅: {target_ticker} ({selected_timeframe_label}) ---")
+                        self._log(f"현재 가격: {current_price:,.0f} 원")
+                        self._log(f"MA50: {ma50_current:,.0f} 원 / MA200: {ma200_current:,.0f} 원 / VWMA100: {vwma100_current:,.0f} 원")
+                        
+                        if DEBUG_MODE_CANDLE:
+                            recent_trend_df = df.tail(200).copy()
+                            self._log(f"캔들 및 이평선 추세 데이터 (최근 {len(recent_trend_df)}개): \n{recent_trend_df[['close', 'MA50', 'MA200', 'VWMA100']].to_string()}")
+
+                    
+                    # SIMULATION/TRADING Mode Specific Logic
+                    elif not is_development_mode:
+                        
+                        # OHLCV 데이터에서 현재 가격을 얻지 못했거나 데이터가 부족하면 현재가 재조회
+                        if current_price is None:
+                            current_price = pyupbit.get_current_price(target_ticker)
+
+                        if current_price:
+                            raw_action = "Wait"
+                            # [임시 매매 로직]
+                            if target_ticker not in self.holdings:
+                                if current_price <= initial_buy_price:
+                                    raw_action = "Buy"
+                                    self.holdings[target_ticker] = {'buy_price': initial_buy_price, 'buy_volume': initial_buy_volume}
+                            else:
+                                raw_action = "Hold" 
+                                if current_price >= 60000000:
+                                    raw_action = "Sell"
+                                    
+                            korean_status = action_map.get(raw_action, "알 수 없음") 
+                            
+                            profit_rate_str = ""
+                            if target_ticker in self.holdings:
+                                buy_price = self.holdings[target_ticker]['buy_price']
+                                profit_rate = ((current_price / buy_price) - 1) * 100
+                                profit_rate_str = f" (수익률: {profit_rate:+.2f}%)"
+
+                                if raw_action == "Sell":
+                                     self._log(f"매도 신호 발생. ({target_ticker}) 보유 청산 가정.")
+                                     del self.holdings[target_ticker]
+                                     korean_status = "매도 대기 중"
+                            
                             
                             # 상태창 간소화
-                            status_msg = f"개발 모드 ({target_ticker}) @ {current_price:,.0f} 원 ({selected_timeframe_label} 로드 완료)"
-                            self.master.after(0, lambda: self.status_text.set(status_msg))
+                            new_status = f"{target_ticker} ({korean_status}) @ {current_price:,.0f} 원{profit_rate_str}"
+                            self.master.after(0, lambda: self.status_text.set(new_status))
                             
-                            # 로그에는 상세 정보 출력
-                            self._log(f"--- 개발 모드 데이터 로깅: {target_ticker} ({selected_timeframe_label}) ---")
-                            self._log(f"현재 가격: {current_price:,.0f} 원")
-                            self._log(f"MA50: {ma50_current:,.0f} 원 / MA200: {ma200_current:,.0f} 원 / VWMA100: {vwma100_current:,.0f} 원")
-                            
-                            if DEBUG_MODE_CANDLE:
-                                recent_trend_df = df.tail(200).copy()
-                                self._log(f"캔들 및 이평선 추세 데이터 (최근 {len(recent_trend_df)}개): \n{recent_trend_df[['close', 'MA50', 'MA200', 'VWMA100']].to_string()}")
-
-                        
-                        # SIMULATION/TRADING Mode Specific Logic
-                        elif not is_development_mode:
-                            
-                            # OHLCV 데이터에서 현재 가격을 얻지 못했거나 데이터가 부족하면 현재가 재조회
-                            if current_price is None:
-                                current_price = pyupbit.get_current_price(target_ticker)
-
-                            if current_price:
-                                raw_action = "Wait"
-                                # [임시 매매 로직]
-                                if target_ticker not in self.holdings:
-                                    if current_price <= initial_buy_price:
-                                        raw_action = "Buy"
-                                        self.holdings[target_ticker] = {'buy_price': initial_buy_price, 'buy_volume': initial_buy_volume}
-                                else:
-                                    raw_action = "Hold" 
-                                    if current_price >= 60000000:
-                                        raw_action = "Sell"
-                                        
-                                korean_status = action_map.get(raw_action, "알 수 없음") 
-                                
-                                profit_rate_str = ""
-                                if target_ticker in self.holdings:
-                                    buy_price = self.holdings[target_ticker]['buy_price']
-                                    profit_rate = ((current_price / buy_price) - 1) * 100
-                                    profit_rate_str = f" (수익률: {profit_rate:+.2f}%)"
-
-                                    if raw_action == "Sell":
-                                         self._log(f"매도 신호 발생. ({target_ticker}) 보유 청산 가정.")
-                                         del self.holdings[target_ticker]
-                                         korean_status = "매도 대기 중"
-                                
-                                
-                                # 상태창 간소화
-                                new_status = f"{target_ticker} ({korean_status}) @ {current_price:,.0f} 원{profit_rate_str}"
-                                self.master.after(0, lambda: self.status_text.set(new_status))
-                                
-                                log_message = f"현재 상태: ({target_ticker}) {korean_status} (현재 가격: {current_price:,.0f} 원{profit_rate_str})"
-                                self._log(log_message)
-                            else:
-                                self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 데이터 로드 실패"))
-                                self._log(f"{target_ticker} 현재가 데이터를 불러오지 못했습니다.")
-                                
+                            log_message = f"현재 상태: ({target_ticker}) {korean_status} (현재 가격: {current_price:,.0f} 원{profit_rate_str})"
+                            self._log(log_message)
                         else:
-                            # 데이터 로드 실패 또는 데이터 불충분
-                            self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 데이터 로드 실패/불충분"))
-                            self._log(f"데이터 로드 실패: {target_ticker} 캔들 데이터를 불러오지 못했거나 200개 미만입니다.")
-
-
+                            self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 데이터 로드 실패"))
+                            self._log(f"{target_ticker} 현재가 데이터를 불러오지 못했습니다.")
+                            
                     else:
-                         self.master.after(0, lambda: self.status_text.set(f"{target_ticker} (잘못된 종목명)"))
+                        # 데이터 로드 실패 또는 데이터 불충분
+                        self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 데이터 로드 실패/불충분"))
+                        self._log(f"데이터 로드 실패: {target_ticker} 캔들 데이터를 불러오지 못했거나 200개 미만입니다.")
+
+
+                else:
+                    self.master.after(0, lambda: self.status_text.set(f"{target_ticker} (잘못된 종목명)"))
 
 
                 time.sleep(load_time)
 
             except Exception as e:
                 error_msg = f"트레이딩 루프 오류 발생: {type(e).__name__} - {e}"
-                self.log(error_msg)
+                # 📌 수정: self.log -> self._log
+                self._log(error_msg) 
                 self.master.after(0, lambda: self.status_text.set(f"오류 발생: {type(e).__name__}"))
                 time.sleep(5) 
         
@@ -704,6 +818,7 @@ if __name__ == "__main__":
         print("시각화 기능 사용을 위해 'pip install matplotlib openpyxl'을 실행하세요.")
     
     try:
+        # .env 파일 로드는 init에서 수행되므로, 여기서는 경고 메시지만 출력
         if not (os.getenv("UPBIT_ACCESS_KEY") and os.getenv("UPBIT_SECRET_KEY")):
              print("경고: .env 파일에 UPBIT_ACCESS_KEY 또는 UPBIT_SECRET_KEY가 설정되지 않았습니다.")
     except Exception:
