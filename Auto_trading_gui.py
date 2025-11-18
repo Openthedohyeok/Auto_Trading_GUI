@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v0d.01.00" 
+APP_VERSION = "v0d.01.0a" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -675,28 +675,24 @@ class AutoTradingGUI:
             ma_trend_ok = (df['MA200'].tail(50) > df['VWMA100'].tail(50)).all() and \
                           (df['VWMA100'].tail(50) > df['MA50'].tail(50)).all()
             
-            # 1-2. 50MA 하락 추세 완화 (최근 5개의 MA50 변화율이 증가하거나 0에 가까워짐)
-            # 50개 캔들 동안의 MA50 변화율(기울기)
-            ma50_change = df['MA50'].diff().tail(50).fillna(0)
+            # 1-2. 50MA 돌파 (직전 캔들이 50MA를 상향 돌파했고, 현재 캔들이 50MA보다 위에 있는 경우)
+            is_prev_breakout = (prev_candle['close'] > prev_ma50) and \
+                               (prev_candle['open'] <= prev_ma50)
             
-            # 하락 추세 확인 (최근 50개 중 80% 이상이 하락 추세였는지)
-            was_downtrend = (ma50_change < 0).sum() >= 40 
+            is_current_above_ma50 = (current_candle['open'] > ma50_current) and \
+                                    (current_candle['close'] > ma50_current)
             
-            # 완화 추세 확인 (현재 5개 캔들의 MA50 변화율 평균이 0에 가까운지 또는 증가하는지)
-            current_ma50_change_avg = ma50_change.tail(5).mean()
-            prev_ma50_change_avg = ma50_change.iloc[-6:-1].mean()
-            
-            # 기울기가 증가하고 있거나, 거의 0에 가까워진 상태 (완화)
-            is_easing_trend = current_ma50_change_avg >= prev_ma50_change_avg 
-            
-            # 1-3. 캔들 50MA 돌파 (현재 캔들 시가, 종가가 모두 50MA 위)
-            is_breakout = (prev_candle['close'] <= prev_ma50) and \
-                          (current_candle['open'] > ma50_current) and \
-                          (current_candle['close'] > ma50_current)
+            is_breakout = is_prev_breakout and is_current_above_ma50
 
-            if ma_trend_ok and was_downtrend and is_easing_trend and is_breakout:
+            if ma_trend_ok and is_breakout:
                 raw_action = "Buy"
-                self._log(f"매수 조건 만족: 정배열({ma_trend_ok}), 하락추세완화({was_downtrend} & {is_easing_trend}), 50MA 돌파({is_breakout})")
+                self._log(f"매수 조건 만족: 정배열({ma_trend_ok}), 50MA 상향 돌파({is_breakout})")
+            else:
+                # 매수 대기 중 로그 추가
+                if not ma_trend_ok:
+                    self._log(f"매수 대기: 정배열 조건 미달 (MA200 > VWMA100 > MA50 불만족)")
+                elif not is_breakout:
+                    self._log(f"매수 대기: 50MA 상향 돌파 조건 미달 (직전캔들 돌파: {is_prev_breakout}, 현재캔들 위: {is_current_above_ma50})")
 
         # ------------------------------------------------
         # 2. 매도/손절 조건 (Sell/Hold)
@@ -740,6 +736,8 @@ class AutoTradingGUI:
                         self._execute_sell(ticker, is_half_sell=False)
                     else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
                         del self.holdings[ticker]
+                else:
+                    self._log(f"보유 중: 나머지 절반 매도 대기. 50MA 하향 돌파({is_trailing_sell_signal}), 수익률({profit_rate:+.2f}%)")
             
             # 2-3. 전량 손절 (50MA 하향 돌파) - 절반 매도 플래그가 False일 때
             else:
@@ -756,6 +754,9 @@ class AutoTradingGUI:
                          self._execute_sell(ticker, is_half_sell=False)
                      else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
                          del self.holdings[ticker]
+                 else:
+                    profit_rate = ((current_price / buy_price) - 1) * 100
+                    self._log(f"보유 중: 손절 대기. 50MA 하향 돌파({is_stop_loss_signal}), 수익률({profit_rate:+.2f}%)")
 
         return raw_action, current_price
 
