@@ -8,17 +8,15 @@ import threading
 import datetime 
 import pandas as pd
 import numpy as np 
-
-# 🚨 차트 시각화를 위한 Matplotlib 임포트
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.ticker import FuncFormatter 
 
-# 📌 버전 관리 변수 설정
-APP_VERSION = "v0d.00.05" 
+# 버전 관리 변수 설정
+APP_VERSION = "v00.00.05" 
 LOG_DIR = "../TRADING_LOG" 
 
-# 📌 전역 디버깅/개발 설정
+# 전역 디버깅/개발 설정
 DEBUG_MODE_CANDLE = False 
 
 class AutoTradingGUI:
@@ -36,6 +34,7 @@ class AutoTradingGUI:
         self.upbit = None
         if self.access_key and self.secret_key:
             try:
+                # Upbit API 키를 사용하여 pyupbit 객체 초기화
                 self.upbit = pyupbit.Upbit(self.access_key, self.secret_key)
                 print("Upbit API 키 로드 성공")
             except Exception as e:
@@ -44,11 +43,8 @@ class AutoTradingGUI:
             messagebox.showwarning("API 경고", ".env 파일에서 API 키를 불러올 수 없습니다.")
 
         self.min_trade_volume = 0 
-        self.holdings = {} 
-        self.target_ticker = "N/A" 
-        
-        # 📌 '매수/매도 확인' 전략용 플래그
-        self.temp_buy_executed = False 
+        self.holdings = {} # 현재 보유 중인 종목 기록 (가상 또는 실제)
+        self.target_ticker = "N/A" # 현재 트레이딩 대상 종목
         
         self._create_frames()
         self._create_widgets()
@@ -117,8 +113,8 @@ class AutoTradingGUI:
         
         self.strategy_var = tk.StringVar(value='이동평균매매')
         self.strategy_label = ttk.Label(self.options_frame, text="전략 선택:")
-        # 📌 수정: '매수/매도 확인' 항목 추가
-        self.strategy_options = ['이동평균매매', '불장단타왕_1', '매수/매도 확인']
+        # 전략 옵션
+        self.strategy_options = ['이동평균매매', '불장단타왕_1']
         self.strategy_menu = ttk.Combobox(self.options_frame, textvariable=self.strategy_var, values=self.strategy_options, state='readonly')
         self.strategy_menu.bind("<<ComboboxSelected>>", self._toggle_ma_options)
         
@@ -239,7 +235,7 @@ class AutoTradingGUI:
         self.ax.tick_params(axis='x', colors='white')
         self.ax.tick_params(axis='y', colors='white')
         
-        self.ax.set_facecolor('#161b22') # 플롯 영역 배경을 더 어둡게
+        self.ax.set_facecolor('#161b22') # 플롯 영역 배경색
         
         self.fig.tight_layout()
         self.canvas.draw()
@@ -254,7 +250,6 @@ class AutoTradingGUI:
         x_index = np.arange(len(plot_df))
         
         # 1. 캔들 색상 및 높이 계산
-        # 🚨 v00.00.06: 상승(종가 >= 시가)은 초록색, 하락(종가 < 시가)은 빨간색으로 변경
         up = plot_df['close'] >= plot_df['open']
         col = np.where(up, '#27A199', '#E74C3C') 
         
@@ -271,13 +266,12 @@ class AutoTradingGUI:
         self.ax.bar(x_index, bar_height, bottom=bar_bottom, 
                     color=col, linewidth=0, width=0.8, align='center')
         
-        # 4. 이동평균선 (MA/VWMA) 그리기 (색상 조정)
-        # 🚨 v00.00.06: 색상 변경 적용 (50-MA: 연두색, 200-MA: 파란색, 100-VWMA: 흰색)
-        self.ax.plot(x_index, plot_df['MA50'], label='50-MA', color='#00ff00', # 연두색
+        # 4. 이동평균선 (MA/VWMA) 그리기 
+        self.ax.plot(x_index, plot_df['MA50'], label='50-MA', color='#00ff00', 
                      linestyle='-', linewidth=1.5, alpha=0.7)
-        self.ax.plot(x_index, plot_df['MA200'], label='200-MA', color='#0000ff', # 파란색
+        self.ax.plot(x_index, plot_df['MA200'], label='200-MA', color='#0000ff', 
                      linestyle='-', linewidth=1.5, alpha=0.7)
-        self.ax.plot(x_index, plot_df['VWMA100'], label='100-VWMA', color='#ffffff', # 흰색
+        self.ax.plot(x_index, plot_df['VWMA100'], label='100-VWMA', color='#ffffff', 
                      linestyle='-', linewidth=1.5, alpha=0.7) 
         
         # 5. 차트 제목 및 레이블 설정
@@ -286,9 +280,8 @@ class AutoTradingGUI:
         self.ax.set_ylabel("KRW", fontsize=10, color='white') 
         
         self.ax.tick_params(axis='both', which='major', labelsize=8)
-        self.ax.legend(loc='best', fontsize=8, framealpha=0.8, facecolor='#161b22', edgecolor='white', labelcolor='linecolor') # 🚨 v00.00.07: 범례 배경색 변경
+        self.ax.legend(loc='best', fontsize=8, framealpha=0.8, facecolor='#161b22', edgecolor='white', labelcolor='linecolor') 
         
-        # 🚨 v00.00.07: 그리드 라인 색상 및 투명도 변경
         self.ax.grid(True, linestyle=':', alpha=0.3, color='#444444') 
         
         # y축 포맷을 정수(콤마 표시)로 설정
@@ -302,9 +295,7 @@ class AutoTradingGUI:
             self.ax.set_xticklabels(x_index[::step], rotation=45, ha='right')
         
         # Dark mode 색상 설정
-        # 🚨 v00.00.07: 플롯 영역 배경색 유지
         self.ax.set_facecolor('#161b22') 
-        # 🚨 v00.00.07: Figure 배경색 유지
         self.fig.set_facecolor('#0d1117') 
         self.ax.tick_params(axis='x', colors='white')
         self.ax.tick_params(axis='y', colors='white')
@@ -334,6 +325,7 @@ class AutoTradingGUI:
             self.master.update()
             
             try:
+                # Upbit API를 통해 KRW 잔고 조회
                 balance = self.upbit.get_balance("KRW") 
                 
                 if balance is not None:
@@ -367,7 +359,7 @@ class AutoTradingGUI:
         self.log_text.config(state='disabled')
 
     def _log(self, message):
-        """실시간 로그를 Text 위젯에 추가 (소스 태그 없음)"""
+        """실시간 로그를 Text 위젯에 추가"""
         self._log_no_source(message)
 
     def _save_log_to_file(self, prefix="TRADING_"): 
@@ -413,12 +405,6 @@ class AutoTradingGUI:
         tickers = [t.strip() for t in self.ticker_input_var.get().upper().split(',') if t.strip()]
         auto_select = self.auto_select_var.get()
         
-        # '매수/매도 확인' 전략 선택 시 종목 1개 필수 체크
-        if self.strategy_var.get() == '매수/매도 확인' and (not tickers or len(tickers) != 1):
-             messagebox.showwarning("종목 설정 오류", "매수/매도 확인 전략은 KRW 마켓 종목 1개만 입력해야 합니다.")
-             return
-             
-        
         if auto_select and self.mode_var.get() != 'DEVELOPMENT':
             dialog_title = "최소 거래 대금 설정"
             
@@ -446,7 +432,7 @@ class AutoTradingGUI:
                 self._log("최소 거래 대금 입력 오류.")
                 return
         
-        elif not tickers and self.strategy_var.get() != '매수/매도 확인':
+        elif not tickers:
              messagebox.showwarning("종목 설정 오류", "매매 희망 종목을 입력하거나 '종목 자동 선택'을 활성화해야 합니다.")
              return
              
@@ -478,8 +464,6 @@ class AutoTradingGUI:
         self.stop_button.config(state='normal')
         
         self.holdings = {}
-        # 📌 '매수/매도 확인' 전략용 플래그 초기화
-        self.temp_buy_executed = False 
 
         strategy = self.strategy_var.get()
         timeframe_label = self.ma_timeframe_var.get()
@@ -544,15 +528,90 @@ class AutoTradingGUI:
         pv_sum = (df['close'] * df['volume']).rolling(window=window, min_periods=window).sum()
         v_sum = df['volume'].rolling(window=window, min_periods=window).sum()
         return pv_sum / v_sum
+
+    def _execute_buy(self, ticker, current_price):
+        """TRADING 모드에서 실제 시장가 매수 주문 실행"""
+        if not self.upbit:
+            self._log("매수 실패: Upbit 객체 초기화 실패. API 키를 확인해 주세요.")
+            return
+
+        try:
+            trade_ratio = int(self.trade_ratio_var.get()) / 100.0
+            
+            # 잔고 조회
+            krw_balance = self.upbit.get_balance("KRW") 
+            if krw_balance is None:
+                self._log("매수 실패: KRW 잔고 조회 실패.")
+                return
+            
+            # 주문 금액 계산 및 최소 주문 금액(5,000 KRW) 체크
+            order_amount = krw_balance * trade_ratio
+            MIN_ORDER_KRW = 5000
+            
+            if order_amount >= MIN_ORDER_KRW:
+                self._log(f"매수 신호({ticker}). 시장가 매수 주문 시도 (금액: {order_amount:,.0f} KRW, 비율: {trade_ratio*100:.0f}%)")
+                
+                # 실제 매수 주문 API 호출
+                result = self.upbit.buy_market_order(ticker, order_amount)
+                
+                if result is None or 'error' in result:
+                    err_msg = result.get('error', {}).get('message', '알 수 없는 오류') if result else '응답 없음'
+                    self._log(f"매수 실패: {err_msg}")
+                else:
+                    self._log(f"매수 주문 성공 (UUID: {result.get('uuid', 'N/A')}).")
+                    # 주문 성공 시 holdings에 기록 (정확한 체결가/수량 확인을 위한 로직 추가 필요)
+                    self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0}
+                    
+            else:
+                self._log(f"매수 금액 ({order_amount:,.0f} KRW)이 최소 주문 금액({MIN_ORDER_KRW:,.0f} KRW) 미만입니다. 주문 생략.")
+                
+        except Exception as e:
+            self._log(f"매수 주문 중 예외 발생: {type(e).__name__} - {e}")
+
+    def _execute_sell(self, ticker):
+        """TRADING 모드에서 실제 시장가 매도 주문 실행 (전량)"""
+        if not self.upbit:
+            self._log("매도 실패: Upbit 객체 초기화 실패. API 키를 확인해 주세요.")
+            return
+            
+        try:
+            coin_symbol = ticker.split('-')[1]
+            holdings = self.upbit.get_balances() 
+            target_coin_balance = [bal for bal in holdings if bal['currency'] == coin_symbol]
+            
+            if target_coin_balance:
+                # Upbit API는 소수점 8자리까지의 정밀도를 요구하므로 float 사용
+                volume_to_sell = float(target_coin_balance[0]['balance'])
+                
+                if volume_to_sell > 0:
+                    self._log(f"매도 신호({ticker}). 시장가 매도 주문 시도 (수량: {volume_to_sell})")
+                    
+                    # 실제 매도 주문 API 호출
+                    sell_result = self.upbit.sell_market_order(ticker, volume_to_sell)
+                    
+                    if sell_result is None or 'error' in sell_result:
+                        err_msg = sell_result.get('error', {}).get('message', '알 수 없는 오류') if sell_result else '응답 없음'
+                        self._log(f"매도 실패: {err_msg}")
+                    else:
+                        self._log(f"매도 주문 성공 (UUID: {sell_result.get('uuid', 'N/A')}).")
+                        
+                        # 보유 기록 삭제 (매도 완료)
+                        if ticker in self.holdings:
+                            del self.holdings[ticker]
+                else:
+                    self._log(f"매도 실패: 보유 수량({coin_symbol})이 0입니다.")
+            else:
+                self._log(f"매도 실패: 보유 잔고 목록에서 {coin_symbol}을(를) 찾을 수 없습니다.")
+                
+        except Exception as e:
+            self._log(f"매도 주문 중 예외 발생: {type(e).__name__} - {e}")
+
         
     def _run_trading_loop(self, load_time, strategy, timeframe, tickers, auto_select, mode):
         """실제 트레이딩 로직 (별도 스레드에서 실행)"""
         
         action_map = {"Buy": "매수 대기 중", "Hold": "보유 중", "Sell": "매도 대기 중", "Wait": "탐색 중"} 
         is_development_mode = (mode == 'DEVELOPMENT')
-        
-        initial_buy_price = 45000000 
-        initial_buy_volume = 0.001
         
         timeframe_map = {'1분': 'minute1', '3분': 'minute3', '5분': 'minute5', '10분': 'minute10', '15분': 'minute15', 
                          '30분': 'minute30', '1시간': 'hour1', '4시간': 'hour4', '1일': 'day', '1주': 'week'}
@@ -564,7 +623,7 @@ class AutoTradingGUI:
                 if tickers:
                     current_tickers = tickers
                 elif is_development_mode:
-                    current_tickers = ['KRW-BTC'] # 개발 모드에서 종목이 없으면 BTC 기본 선택
+                    current_tickers = ['KRW-BTC'] # 개발 모드 기본값
                     self.master.after(0, lambda: self.status_text.set(f"개발 모드 / 종목 미입력: KRW-BTC 로딩 중"))
                 
                 
@@ -578,122 +637,26 @@ class AutoTradingGUI:
                 self.target_ticker = target_ticker 
                 
                 
-                # ----------------------------------------------------
-                # 📌 '매수/매도 확인' 로직 (테스트 후 반드시 제거)
-                # ----------------------------------------------------
-                if strategy == '매수/매도 확인':
-                    
-                    if mode != 'TRADING':
-                        self._log("경고: '매수/매도 확인' 전략은 TRADING 모드에서만 실제 주문을 실행합니다.")
-                        self.master.after(0, lambda: self.status_text.set("TRADING 모드로 변경 필요"))
-                        time.sleep(load_time)
-                        continue
-                        
-                    if not self.upbit:
-                        self._log("Upbit 객체 초기화 실패. API 키를 확인해 주세요.")
-                        self.master.after(0, lambda: self.status_text.set("API 오류로 종료합니다."))
-                        self.master.after(0, self._stop_trading) 
-                        return
-                    
-                    if target_ticker not in pyupbit.get_tickers(fiat="KRW"):
-                         self._log(f"잘못된 종목명: {target_ticker}. KRW 마켓 종목 1개만 입력해 주세요.")
-                         self.master.after(0, lambda: self.status_text.set("잘못된 종목명으로 종료합니다."))
-                         self.master.after(0, self._stop_trading) 
-                         return
-
-                    # --- 1. 매수 단계 (딱 한 번만 실행) ---
-                    if not self.temp_buy_executed:
-                        
-                        BUY_AMOUNT = 10000 # 1만원
-                        
-                        self._log(f"--- [매수/매도 확인] 테스트 시작: {target_ticker} {BUY_AMOUNT:,.0f}원 매수 시도 ---")
-                        self.master.after(0, lambda: self.status_text.set(f"{target_ticker} {BUY_AMOUNT:,.0f}원 매수 주문 중..."))
-
-                        try:
-                            # 시장가 매수 주문 (order_amount는 원화)
-                            buy_result = self.upbit.buy_market_order(target_ticker, BUY_AMOUNT)
-                            
-                            if buy_result is None or 'error' in buy_result:
-                                err_msg = buy_result.get('error', {}).get('message', '알 수 없는 오류') if buy_result else '응답 없음'
-                                raise Exception(err_msg)
-                                
-                            self._log(f"✅ 매수 주문 성공: UUID: {buy_result.get('uuid', 'N/A')}")
-                            self.temp_buy_executed = True
-                            
-                            # 주문 후 1분 대기 (매도 타이밍)
-                            self._log(f"매수 완료. 60초 대기 후 매도 주문을 실행합니다.")
-                            self.master.after(0, lambda: self.status_text.set(f"매수 완료. 60초 후 매도 예정..."))
-                            
-                            # **여기서는 load_time이 아닌 60초 대기**
-                            time.sleep(60) 
-                            
-                        except Exception as e:
-                            self._log(f"❌ 매수 실패: {e}")
-                            self.master.after(0, lambda: self.status_text.set(f"매수 실패로 종료합니다."))
-                            self.master.after(0, self._stop_trading)
-                            return
-                            
-                    # --- 2. 매도 단계 (매수 성공 후 실행) ---
-                    else:
-                        
-                        # 실제 잔고를 조회하여 전량 매도
-                        self._log(f"--- [매수/매도 확인] 매도 단계 시작: {target_ticker} 전량 매도 시도 ---")
-                        self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 전량 매도 주문 중..."))
-                        
-                        # 보유 수량 조회
-                        coin_symbol = target_ticker.split('-')[1]
-                        volume_to_sell = 0.0
-                        
-                        # pyupbit.get_balances() 대신 Upbit 객체의 get_balances() 사용 (API 키 필요)
-                        holdings = self.upbit.get_balances() 
-                        target_coin_balance = [bal for bal in holdings if bal['currency'] == coin_symbol]
-                        
-                        if target_coin_balance:
-                            volume_to_sell = float(target_coin_balance[0]['balance'])
-                            
-                            if volume_to_sell > 0:
-                                
-                                # 시장가 매도 주문 (volume은 코인 수량)
-                                sell_result = self.upbit.sell_market_order(target_ticker, volume_to_sell)
-                                
-                                if sell_result is None or 'error' in sell_result:
-                                     err_msg = sell_result.get('error', {}).get('message', '알 수 없는 오류') if sell_result else '응답 없음'
-                                     raise Exception(err_msg)
-                                     
-                                self._log(f"✅ 매도 주문 성공 (수량: {volume_to_sell}): UUID: {sell_result.get('uuid', 'N/A')}")
-                            else:
-                                self._log("경고: 보유 수량이 0입니다. 이미 매도되었거나 주문에 실패했을 수 있습니다.")
-                        else:
-                            self._log(f"경고: 보유 잔고 목록에서 {coin_symbol}을(를) 찾을 수 없습니다.")
-                            
-                        self._log("--- [매수/매도 확인] 테스트 종료. 루프를 멈춥니다. ---")
-                        self.master.after(0, lambda: self.status_text.set("매수/매도 테스트 완료"))
-                        self.master.after(0, self._stop_trading) 
-                        return # 루프 종료
-                
-                # ----------------------------------------------------
-                # (일반 트레이딩/개발 모드 로직은 여기에 위치)
-                # ----------------------------------------------------
-                
-                
                 if target_ticker in pyupbit.get_tickers(fiat="KRW"):
                     
                     # 차트 표시를 위해 모든 모드에서 OHLCV 및 지표 데이터 로드
                     selected_timeframe_label = self.ma_timeframe_var.get()
                     selected_interval = timeframe_map.get(selected_timeframe_label, 'day')
                     
+                    # 캔들 데이터 로드
                     df = pyupbit.get_ohlcv(target_ticker, interval=selected_interval, count=400) 
                     
                     current_price = None
                     if df is not None and len(df) >= 200:
                         
+                        # 지표 계산
                         df['MA50'] = self._calculate_moving_average(df, 50)
                         df['MA200'] = self._calculate_moving_average(df, 200)
                         df['VWMA100'] = self._calculate_vwma(df, 100) 
 
                         current_price = df.iloc[-1]['close'] 
                         
-                        # 차트 업데이트 (모든 모드에서 데이터가 있으면 실행)
+                        # 차트 업데이트
                         self.master.after(0, lambda: self._draw_chart(df, selected_timeframe_label))
                     
                     # DEVELOPMENT Mode Specific Logging
@@ -703,11 +666,11 @@ class AutoTradingGUI:
                         ma200_current = df['MA200'].iloc[-1]
                         vwma100_current = df['VWMA100'].iloc[-1]
                         
-                        # 상태창 간소화
+                        # 상태창 업데이트
                         status_msg = f"개발 모드 ({target_ticker}) @ {current_price:,.0f} 원 ({selected_timeframe_label} 로드 완료)"
                         self.master.after(0, lambda: self.status_text.set(status_msg))
                         
-                        # 로그에는 상세 정보 출력
+                        # 로그에 상세 정보 출력
                         self._log(f"--- 개발 모드 데이터 로깅: {target_ticker} ({selected_timeframe_label}) ---")
                         self._log(f"현재 가격: {current_price:,.0f} 원")
                         self._log(f"MA50: {ma50_current:,.0f} 원 / MA200: {ma200_current:,.0f} 원 / VWMA100: {vwma100_current:,.0f} 원")
@@ -715,27 +678,53 @@ class AutoTradingGUI:
                         if DEBUG_MODE_CANDLE:
                             recent_trend_df = df.tail(200).copy()
                             self._log(f"캔들 및 이평선 추세 데이터 (최근 {len(recent_trend_df)}개): \n{recent_trend_df[['close', 'MA50', 'MA200', 'VWMA100']].to_string()}")
-
                     
                     # SIMULATION/TRADING Mode Specific Logic
                     elif not is_development_mode:
                         
-                        # OHLCV 데이터에서 현재 가격을 얻지 못했거나 데이터가 부족하면 현재가 재조회
+                        # 현재 가격 재조회 (캔들 데이터가 부족하거나 없을 경우)
                         if current_price is None:
                             current_price = pyupbit.get_current_price(target_ticker)
 
                         if current_price:
                             raw_action = "Wait"
-                            # [임시 매매 로직]
-                            if target_ticker not in self.holdings:
-                                if current_price <= initial_buy_price:
-                                    raw_action = "Buy"
-                                    self.holdings[target_ticker] = {'buy_price': initial_buy_price, 'buy_volume': initial_buy_volume}
-                            else:
-                                raw_action = "Hold" 
-                                if current_price >= 60000000:
-                                    raw_action = "Sell"
-                                    
+                            
+                            # ------------------------------------------------
+                            # 1. [사용자 전략 구현 위치] 매수/매도 신호 판단 로직
+                            #    - 이 곳에 실제 매매 전략을 구현하세요.
+                            #    - 예시: raw_action = "Buy" 또는 raw_action = "Sell"
+                            # ------------------------------------------------
+                            
+                            # if strategy == '이동평균매매':
+                            #     if (매수 조건 만족):
+                            #         raw_action = "Buy"
+                            #     elif (매도 조건 만족):
+                            #         raw_action = "Sell"
+
+                            
+                            # ------------------------------------------------
+                            # 2. [SIMULATION vs TRADING] 주문 실행 또는 가상 기록
+                            # ------------------------------------------------
+                            if raw_action == "Buy":
+                                if mode == 'TRADING':
+                                    self._execute_buy(target_ticker, current_price) 
+                                elif target_ticker not in self.holdings: # SIMULATION 모드
+                                    # 가상 매수 기록
+                                    self.holdings[target_ticker] = {'buy_price': current_price, 'buy_volume': 0.001}
+                                
+
+                            elif raw_action == "Sell":
+                                if mode == 'TRADING':
+                                    self._execute_sell(target_ticker) 
+                                
+                                # SIMULATION 모드에서는 가상 매도 후 기록 삭제
+                                elif target_ticker in self.holdings:
+                                    del self.holdings[target_ticker]
+                            
+                            
+                            # ------------------------------------------------
+                            # 3. 상태 업데이트 및 로깅
+                            # ------------------------------------------------
                             korean_status = action_map.get(raw_action, "알 수 없음") 
                             
                             profit_rate_str = ""
@@ -744,13 +733,8 @@ class AutoTradingGUI:
                                 profit_rate = ((current_price / buy_price) - 1) * 100
                                 profit_rate_str = f" (수익률: {profit_rate:+.2f}%)"
 
-                                if raw_action == "Sell":
-                                     self._log(f"매도 신호 발생. ({target_ticker}) 보유 청산 가정.")
-                                     del self.holdings[target_ticker]
-                                     korean_status = "매도 대기 중"
                             
-                            
-                            # 상태창 간소화
+                            # 상태창 업데이트
                             new_status = f"{target_ticker} ({korean_status}) @ {current_price:,.0f} 원{profit_rate_str}"
                             self.master.after(0, lambda: self.status_text.set(new_status))
                             
@@ -774,7 +758,6 @@ class AutoTradingGUI:
 
             except Exception as e:
                 error_msg = f"트레이딩 루프 오류 발생: {type(e).__name__} - {e}"
-                # 📌 수정: self.log -> self._log
                 self._log(error_msg) 
                 self.master.after(0, lambda: self.status_text.set(f"오류 발생: {type(e).__name__}"))
                 time.sleep(5) 
@@ -814,11 +797,10 @@ if __name__ == "__main__":
         import matplotlib.pyplot 
         print("필수 라이브러리(Pandas, openpyxl, numpy, Matplotlib) 로드 확인 완료.")
     except ImportError as e:
-        print(f"🚨 경고: 필요한 라이브러리 중 일부가 설치되지 않았습니다. ({e.name})")
+        print(f"경고: 필요한 라이브러리 중 일부가 설치되지 않았습니다. ({e.name})")
         print("시각화 기능 사용을 위해 'pip install matplotlib openpyxl'을 실행하세요.")
     
     try:
-        # .env 파일 로드는 init에서 수행되므로, 여기서는 경고 메시지만 출력
         if not (os.getenv("UPBIT_ACCESS_KEY") and os.getenv("UPBIT_SECRET_KEY")):
              print("경고: .env 파일에 UPBIT_ACCESS_KEY 또는 UPBIT_SECRET_KEY가 설정되지 않았습니다.")
     except Exception:
@@ -826,5 +808,6 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     app = AutoTradingGUI(root)
+    # 윈도우 닫기 이벤트 시 트레이딩 종료 로직 실행
     root.protocol("WM_DELETE_WINDOW", lambda: [app._stop_trading() if app.trading_thread else None, root.destroy()])
     root.mainloop()
