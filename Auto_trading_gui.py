@@ -11,9 +11,10 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.ticker import FuncFormatter 
+import telegram 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.02" 
+APP_VERSION = "v0d.02.0a" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -31,6 +32,10 @@ class AutoTradingGUI:
         self.access_key = os.getenv("UPBIT_ACCESS_KEY")
         self.secret_key = os.getenv("UPBIT_SECRET_KEY")
         
+        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.telegram_my_id = os.getenv("TELEGRAM_MY_ID")
+        self.telegram_bot = None
+
         self.upbit = None
         if self.access_key and self.secret_key:
             try:
@@ -40,6 +45,15 @@ class AutoTradingGUI:
                 messagebox.showerror("API 오류", f"Upbit 객체 생성 오류: {e}")
         else:
             messagebox.showwarning("API 경고", ".env 파일에서 API 키를 불러올 수 없습니다.")
+            
+        if self.telegram_bot_token and self.telegram_my_id:
+            try:
+                self.telegram_bot = telegram.Bot(token=self.telegram_bot_token)
+                print("Telegram 봇 초기화 성공")
+            except Exception as e:
+                messagebox.showerror("Telegram 오류", f"Telegram 봇 초기화 오류: {e}")
+        else:
+             messagebox.showwarning("Telegram 경고", ".env 파일에서 Telegram API 키 또는 Chat ID를 불러올 수 없습니다.")
 
         self.min_trade_volume = 0 
         self.holdings = {} 
@@ -58,6 +72,40 @@ class AutoTradingGUI:
         self._log_no_source(f"Auto Trading ({APP_VERSION})")
         self._log_no_source(f"디버그 모드 (캔들 로깅): {'활성화' if DEBUG_MODE_CANDLE else '비활성화'}")
 
+    def _send_telegram_message(self, message):
+        """텔레그램 메시지 전송 (별도 스레드에서 실행)"""
+        if not self.telegram_bot or not self.telegram_my_id:
+            self._log("Telegram 메시지 전송 실패: 봇 토큰 또는 Chat ID가 설정되지 않았습니다.")
+            return
+
+        def send_message_thread():
+            import asyncio
+            import telegram 
+
+            # 1. 새 이벤트 루프 생성 및 설정
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # 2. 코루틴을 루프에서 실행
+                loop.run_until_complete(
+                    self.telegram_bot.send_message(chat_id=self.telegram_my_id, text=message)
+                )
+                self.master.after(0, lambda: self._log(f"Telegram 메시지 전송 성공: {message}"))
+            
+            # 3. 텔레그램 관련 오류는 TelegramError로 처리 (NetworkError, Unauthorized 등을 포괄)
+            except telegram.error.TelegramError as e: 
+                # 인증 오류, 네트워크 오류 등을 여기서 처리
+                self.master.after(0, lambda: self._log(f"Telegram 메시지 전송 중 오류 발생: {type(e).__name__} - Chat ID 또는 토큰을 확인하세요. ({e})"))
+            except Exception as e:
+                self.master.after(0, lambda: self._log(f"Telegram 메시지 전송 중 치명적 오류 발생: {type(e).__name__} - {e}"))
+            
+            # 4. 루프 정리
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
+
+        threading.Thread(target=send_message_thread, daemon=True).start()
 
     def _create_frames(self):
         """GUI 레이아웃을 위한 프레임 생성 (좌측과 우측 분리)"""
@@ -492,6 +540,8 @@ class AutoTradingGUI:
              self._log(f"매매 희망 종목: {tickers}")
         self._log(f"로그 저장 주기: {log_save_time_hours} 시간")
         self._log("--------------------------")
+        
+        self._send_telegram_message("트레이딩 시작!")
 
         self.trading_thread = threading.Thread(target=self._run_trading_loop, 
                                                args=(load_time, strategy, timeframe, tickers, auto_select, mode))
@@ -637,8 +687,10 @@ class AutoTradingGUI:
                 if result is None or 'error' in result:
                     err_msg = result.get('error', {}).get('message', '알 수 없는 오류') if result else '응답 없음'
                     self._log(f"매수 실패: {err_msg}")
+                    self._send_telegram_message(f"[매수 실패] {ticker}: {err_msg}")
                 else:
                     self._log(f"매수 주문 성공 (UUID: {result.get('uuid', 'N/A')}).")
+                    self._send_telegram_message(f"[매수 성공] {ticker}: {order_amount:,.0f} KRW")
                     
                     self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
                     
@@ -647,6 +699,7 @@ class AutoTradingGUI:
                 
         except Exception as e:
             self._log(f"매수 주문 중 예외 발생: {type(e).__name__} - {e}")
+            self._send_telegram_message(f"[매수 오류] {ticker}: {type(e).__name__}")
 
     def _execute_sell(self, ticker, is_half_sell=False):
         """TRADING 모드에서 실제 시장가 매도 주문 실행 (전량 또는 절반)"""
@@ -674,8 +727,10 @@ class AutoTradingGUI:
                     if sell_result is None or 'error' in sell_result:
                         err_msg = sell_result.get('error', {}).get('message', '알 수 없는 오류') if sell_result else '응답 없음'
                         self._log(f"매도 실패: {err_msg}")
+                        self._send_telegram_message(f"[매도 실패] {ticker} ({'절반' if is_half_sell else '전량'}): {err_msg}")
                     else:
                         self._log(f"매도 주문 성공 (UUID: {sell_result.get('uuid', 'N/A')}).")
+                        self._send_telegram_message(f"[매도 성공] {ticker}: {volume_to_sell} ({'절반' if is_half_sell else '전량'})")
                         
                         if is_half_sell:
                             if ticker in self.holdings:
@@ -691,6 +746,7 @@ class AutoTradingGUI:
                 
         except Exception as e:
             self._log(f"매도 주문 중 예외 발생: {type(e).__name__} - {e}")
+            self._send_telegram_message(f"[매도 오류] {ticker}: {type(e).__name__}")
 
     def _strategy_5min_ma50(self, ticker, df, mode):
         """5분봉 50선 트레이딩 전략 로직"""
@@ -1010,16 +1066,19 @@ class AutoTradingGUI:
                 if not self.trading_thread.is_alive():
                     break
                 time.sleep(0.1)
+                
+        self._send_telegram_message("트레이딩 종료!")
 
         self.status_text.set("트레이딩 종료 완료")
 
 if __name__ == "__main__":
     try:
+        import asyncio 
         import pandas as pd
         import openpyxl
         import numpy as np
         import matplotlib.pyplot 
-        print("필수 라이브러리(Pandas, openpyxl, numpy, Matplotlib) 로드 확인 완료.")
+        print("필수 라이브러리(Asyncio, Pandas, openpyxl, numpy, Matplotlib) 로드 확인 완료.")
     except ImportError as e:
         print(f"경고: 필요한 라이브러리 중 일부가 설치되지 않았습니다. ({e.name})")
         print("시각화 기능 사용을 위해 'pip install matplotlib openpyxl'을 실행하세요.")
@@ -1032,5 +1091,5 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     app = AutoTradingGUI(root)
-    root.protocol("WM_DELETE_WINDOW", lambda: [app._stop_trading() if app.trading_thread else None, root.destroy()])
+    root.protocol("WM_DELETE_WINDOW", lambda: [app._stop_trading() if app.trading_active else None, root.destroy()])
     root.mainloop()
