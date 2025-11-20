@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.01" 
+APP_VERSION = "v00.01.02" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -716,6 +716,9 @@ class AutoTradingGUI:
         prev_ma50 = prev_candle['MA50']
         prev_ma200 = prev_candle['MA200']
         prev_vwma100 = prev_candle['VWMA100']
+        
+        
+        is_ma50_below_10_candles = (df['close'].tail(10) < df['MA50'].tail(10)).all()
 
         
         if ticker not in self.holdings:
@@ -760,13 +763,17 @@ class AutoTradingGUI:
             if not is_half_sold:
                 
                 if current_candle['high'] >= ma200_current:
-                    self.holdings[ticker]['half_sold'] = True 
                     
-                    if mode == 'TRADING':
-                         self._execute_sell(ticker, is_half_sell=True)
-                    else: 
-                        raw_action = "Sell (Half)" 
-                        self._log(f"가상 절반 매도 (이익 실현): 200MA({ma200_current:,.0f}) 도달. 현재가격:{current_price:,.0f}원")
+                    if is_ma50_below_10_candles:
+                        self._log(f"절반 매도 대기: 10개 캔들이 50MA 아래에 있어 매도 조건 미달")
+                    else:
+                        self.holdings[ticker]['half_sold'] = True 
+                        
+                        if mode == 'TRADING':
+                            self._execute_sell(ticker, is_half_sell=True)
+                        else: 
+                            raw_action = "Sell (Half)" 
+                            self._log(f"가상 절반 매도 (이익 실현): 200MA({ma200_current:,.0f}) 도달. 현재가격:{current_price:,.0f}원")
                     
                     
                     return "Hold", current_price
@@ -784,13 +791,17 @@ class AutoTradingGUI:
 
                 
                 if is_trailing_sell_signal and is_profitable:
-                    raw_action = "Sell" 
-                    self._log(f"나머지 절반 매도 조건 만족: 50MA 하향 돌파 및 수익 1% 이상 ({profit_rate:+.2f}%)")
                     
-                    if mode == 'TRADING':
-                        self._execute_sell(ticker, is_half_sell=False)
-                    else: 
-                        del self.holdings[ticker]
+                    if is_ma50_below_10_candles:
+                        self._log(f"나머지 절반 매도 대기: 10개 캔들이 50MA 아래에 있어 매도 조건 미달")
+                    else:
+                        raw_action = "Sell" 
+                        self._log(f"나머지 절반 매도 조건 만족: 50MA 하향 돌파 및 수익 1% 이상 ({profit_rate:+.2f}%)")
+                        
+                        if mode == 'TRADING':
+                            self._execute_sell(ticker, is_half_sell=False)
+                        else: 
+                            del self.holdings[ticker]
                 
                 
                 else:
@@ -798,13 +809,17 @@ class AutoTradingGUI:
                     is_below_ma50 = df.tail(3).apply(lambda x: x['high'] < x['MA50'], axis=1).all()
                     
                     if not is_profitable and is_below_ma50:
-                        raw_action = "Sell" 
-                        self._log(f"나머지 절반 매도 조건 만족: 수익 1% 미만({profit_rate:+.2f}%) & 50MA 아래 3개 연속 캔들({is_below_ma50})")
                         
-                        if mode == 'TRADING':
-                             self._execute_sell(ticker, is_half_sell=False)
-                        else: 
-                             del self.holdings[ticker]
+                        if is_ma50_below_10_candles:
+                            self._log(f"나머지 절반 매도 대기: 10개 캔들이 50MA 아래에 있어 매도 조건 미달")
+                        else:
+                            raw_action = "Sell" 
+                            self._log(f"나머지 절반 매도 조건 만족: 수익 1% 미만({profit_rate:+.2f}%) & 50MA 아래 3개 연속 캔들({is_below_ma50})")
+                            
+                            if mode == 'TRADING':
+                                self._execute_sell(ticker, is_half_sell=False)
+                            else: 
+                                del self.holdings[ticker]
                              
                     else:
                         self._log(f"보유 중: 나머지 절반 매도 대기. 50MA 하향 돌파({is_trailing_sell_signal}), 수익률({profit_rate:+.2f}%)")
@@ -815,14 +830,18 @@ class AutoTradingGUI:
                  is_stop_loss_signal = current_candle['low'] < ma50_current
                  
                  if is_stop_loss_signal:
-                     raw_action = "Sell" 
-                     profit_rate = ((current_price / buy_price) - 1) * 100
-                     self._log(f"손절 조건 만족: 50MA 하향 돌파 (저가:{current_candle['low']:,.0f}, MA50:{ma50_current:,.0f}). 수익률: {profit_rate:+.2f}%")
                      
-                     if mode == 'TRADING':
-                         self._execute_sell(ticker, is_half_sell=False)
-                     else: 
-                         del self.holdings[ticker]
+                     if is_ma50_below_10_candles:
+                         self._log(f"손절 매도 대기: 10개 캔들이 50MA 아래에 있어 매도 조건 미달")
+                     else:
+                         raw_action = "Sell" 
+                         profit_rate = ((current_price / buy_price) - 1) * 100
+                         self._log(f"손절 조건 만족: 50MA 하향 돌파 (저가:{current_candle['low']:,.0f}, MA50:{ma50_current:,.0f}). 수익률: {profit_rate:+.2f}%")
+                         
+                         if mode == 'TRADING':
+                             self._execute_sell(ticker, is_half_sell=False)
+                         else: 
+                             del self.holdings[ticker]
                  else:
                     profit_rate = ((current_price / buy_price) - 1) * 100
                     self._log(f"보유 중: 손절 대기. 50MA 하향 돌파({is_stop_loss_signal}), 수익률({profit_rate:+.2f}%)")
