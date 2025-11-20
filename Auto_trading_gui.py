@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v0d.01.0a" 
+APP_VERSION = "v0d.01.0b" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -737,6 +737,7 @@ class AutoTradingGUI:
                 # 1% 이상 수익 조건
                 is_profitable = profit_rate >= 1.0
 
+                # 50MA 하향 돌파 및 1% 이상 수익일 때
                 if is_trailing_sell_signal and is_profitable:
                     raw_action = "Sell" # 전량 매도
                     self._log(f"나머지 절반 매도 조건 만족: 50MA 하향 돌파 및 수익 1% 이상 ({profit_rate:+.2f}%)")
@@ -745,8 +746,23 @@ class AutoTradingGUI:
                         self._execute_sell(ticker, is_half_sell=False)
                     else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
                         del self.holdings[ticker]
+                
+                # 50MA 하향 이탈 및 3개 연속 캔들 닿음 조건 (수익률 1% 미만일 때 추가)
                 else:
-                    self._log(f"보유 중: 나머지 절반 매도 대기. 50MA 하향 돌파({is_trailing_sell_signal}), 수익률({profit_rate:+.2f}%)")
+                    # 50MA 보다 캔들 고가(High)가 낮은 캔들이 3개 연속인지 확인
+                    is_below_ma50 = df.tail(3).apply(lambda x: x['high'] < x['MA50'], axis=1).all()
+                    
+                    if not is_profitable and is_below_ma50:
+                        raw_action = "Sell" # 전량 매도
+                        self._log(f"나머지 절반 매도 조건 만족: 수익 1% 미만({profit_rate:+.2f}%) & 50MA 아래 3개 연속 캔들({is_below_ma50})")
+                        
+                        if mode == 'TRADING':
+                             self._execute_sell(ticker, is_half_sell=False)
+                        else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
+                             del self.holdings[ticker]
+                             
+                    else:
+                        self._log(f"보유 중: 나머지 절반 매도 대기. 50MA 하향 돌파({is_trailing_sell_signal}), 수익률({profit_rate:+.2f}%)")
             
             # 2-3. 전량 손절 (50MA 하향 돌파) - 절반 매도 플래그가 False일 때
             else:
