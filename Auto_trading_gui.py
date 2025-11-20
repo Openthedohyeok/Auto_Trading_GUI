@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.00" 
+APP_VERSION = "v00.01.01" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -34,7 +34,6 @@ class AutoTradingGUI:
         self.upbit = None
         if self.access_key and self.secret_key:
             try:
-                # Upbit API 키를 사용하여 pyupbit 객체 초기화
                 self.upbit = pyupbit.Upbit(self.access_key, self.secret_key)
                 print("Upbit API 키 로드 성공")
             except Exception as e:
@@ -43,8 +42,8 @@ class AutoTradingGUI:
             messagebox.showwarning("API 경고", ".env 파일에서 API 키를 불러올 수 없습니다.")
 
         self.min_trade_volume = 0 
-        self.holdings = {} # 현재 보유 중인 종목 기록 (가상 또는 실제)
-        self.target_ticker = "N/A" # 현재 트레이딩 대상 종목
+        self.holdings = {} 
+        self.target_ticker = "N/A" 
         
         self._create_frames()
         self._create_widgets()
@@ -55,7 +54,6 @@ class AutoTradingGUI:
         self.status_text.set("시작 대기 중")
         self.trading_thread = None 
         self.log_save_thread = None
-        self.shutdown_timer_thread = None
         
         self._log_no_source(f"Auto Trading ({APP_VERSION})")
         self._log_no_source(f"디버그 모드 (캔들 로깅): {'활성화' if DEBUG_MODE_CANDLE else '비활성화'}")
@@ -86,17 +84,14 @@ class AutoTradingGUI:
         self.etc_frame = ttk.LabelFrame(self.left_panel, text="4. 기타 설정", padding="10")
         self.button_frame = ttk.Frame(self.left_panel)
         
-        # 5. 실시간 로그 프레임
         self.log_frame = ttk.LabelFrame(self.left_panel, text="5. 실시간 로그", padding="10")
         
-        # 6. 차트 프레임
         self.chart_frame = ttk.LabelFrame(self.right_panel, text="6. 차트", padding="5")
 
 
     def _create_widgets(self):
         """GUI 위젯 생성 (프레임에 소속 지정)"""
         
-        # 1. 현재 상태 ------------------------------------------
         self.status_text = tk.StringVar()
         self.status_label = ttk.Label(self.status_frame, textvariable=self.status_text, 
                                       font=("Malgun Gothic", 12, "bold"), foreground="blue")
@@ -106,7 +101,6 @@ class AutoTradingGUI:
         self.balance_label = ttk.Label(self.status_frame, textvariable=self.balance_text, 
                                       font=("Malgun Gothic", 10), foreground="green")
 
-        # 2. 트레이딩 옵션 ------------------------------------------
         self.mode_var = tk.StringVar(value='SIMULATION')
         self.mode_label = ttk.Label(self.options_frame, text="모드 선택:")
         self.mode_options = ['SIMULATION', 'TRADING', 'DEVELOPMENT'] 
@@ -114,7 +108,6 @@ class AutoTradingGUI:
         
         self.strategy_var = tk.StringVar(value='이동평균매매')
         self.strategy_label = ttk.Label(self.options_frame, text="전략 선택:")
-        # 전략 옵션
         self.strategy_options = ['이동평균매매', '5분봉_50선_트레이딩']
         self.strategy_menu = ttk.Combobox(self.options_frame, textvariable=self.strategy_var, values=self.strategy_options, state='readonly')
         self.strategy_menu.bind("<<ComboboxSelected>>", self._toggle_ma_options)
@@ -131,7 +124,6 @@ class AutoTradingGUI:
         self.ma_timeframe_menu = ttk.Combobox(self.options_frame, textvariable=self.ma_timeframe_var, 
                                               values=self.ma_timeframe_options, state='readonly')
         
-        # 3. 전략 상세 설정 ------------------------------------------
         self.data_load_time_var = tk.StringVar(value='10') 
         self.data_load_time_label = ttk.Label(self.settings_frame, text="데이터 로딩 시간 (초):")
         self.data_load_time_entry = ttk.Entry(self.settings_frame, textvariable=self.data_load_time_var, font=('Malgun Gothic', 10))
@@ -144,19 +136,17 @@ class AutoTradingGUI:
         self.auto_select_check = ttk.Checkbutton(self.settings_frame, text="종목 자동 선택", 
                                                 variable=self.auto_select_var, command=self._toggle_ticker_input)
         
-        # 4. 기타 설정 ------------------------------------------
+        self.manual_button_frame = ttk.Frame(self.settings_frame)
+        self.immediate_buy_button = ttk.Button(self.manual_button_frame, text="즉시 매수", command=self._immediate_buy, state='disabled')
+        self.immediate_sell_button = ttk.Button(self.manual_button_frame, text="즉시 매도", command=self._immediate_sell, state='disabled')
+        
         self.log_save_time_var = tk.StringVar(value='24') 
         self.log_save_time_label = ttk.Label(self.etc_frame, text="로그 저장 주기 (시간):")
         self.log_save_time_entry = ttk.Entry(self.etc_frame, textvariable=self.log_save_time_var, font=('Malgun Gothic', 10))
-
-        self.shutdown_time_var = tk.StringVar(value='') 
-        self.shutdown_time_label = ttk.Label(self.etc_frame, text="예약 종료 (시간 후):")
-        self.shutdown_time_entry = ttk.Entry(self.etc_frame, textvariable=self.shutdown_time_var, font=('Malgun Gothic', 10))
         
         self.start_button = ttk.Button(self.button_frame, text="트레이딩 시작", command=self._handle_start)
         self.stop_button = ttk.Button(self.button_frame, text="트레이딩 종료", command=self._stop_trading, state='disabled')
         
-        # 5. 실시간 로그 ------------------------------------------
         self.log_text = tk.Text(self.log_frame, state='disabled', wrap='word', 
                                 font=("Malgun Gothic", 9), height=10, 
                                 bg='#2b2b2b', fg='white', insertbackground='white')
@@ -166,7 +156,6 @@ class AutoTradingGUI:
     def _layout_widgets(self):
         """GUI 위젯 배치"""
         
-        # Left Panel (종속 프레임 순서대로 pack)
         self.status_frame.pack(padx=5, pady=5, fill="x")
         self.options_frame.pack(padx=5, pady=5, fill="x")
         self.settings_frame.pack(padx=5, pady=5, fill="x")
@@ -174,17 +163,14 @@ class AutoTradingGUI:
         self.log_frame.pack(padx=5, pady=5, fill="both", expand=True) 
         self.button_frame.pack(padx=5, pady=10, fill="x")
 
-        # Right Panel (6. 차트)
         self.right_panel.rowconfigure(0, weight=1)
         self.right_panel.columnconfigure(0, weight=1)
         self.chart_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew") 
 
-        # 1. 현재 상태 (pack) 
         self.status_label.pack(fill="x", pady=(5, 0)) 
         self.check_balance_button.pack(fill="x", pady=5)
         self.balance_label.pack(fill="x", pady=(0, 5))
         
-        # 2. 트레이딩 옵션 (grid)
         self.options_frame.columnconfigure(1, weight=1)
         self.mode_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.mode_menu.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
@@ -198,7 +184,6 @@ class AutoTradingGUI:
         self.ma_timeframe_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.ma_timeframe_menu.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
-        # 3. 전략 상세 설정 (grid)
         self.settings_frame.columnconfigure(1, weight=1)
         self.data_load_time_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.data_load_time_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
@@ -206,18 +191,17 @@ class AutoTradingGUI:
         self.ticker_input_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
         self.auto_select_check.grid(row=2, column=1, padx=5, pady=5, sticky="e")
         
-        # 4. 기타 설정 (grid)
+        self.manual_button_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=(0, 5), sticky="ew")
+        self.immediate_buy_button.pack(side=tk.LEFT, expand=True, fill="x", padx=5)
+        self.immediate_sell_button.pack(side=tk.RIGHT, expand=True, fill="x", padx=5)
+        
         self.etc_frame.columnconfigure(1, weight=1)
         self.log_save_time_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.log_save_time_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        self.shutdown_time_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.shutdown_time_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        # 시작/종료 버튼 (pack)
         self.start_button.pack(side=tk.LEFT, expand=True, fill="x", padx=5)
         self.stop_button.pack(side=tk.RIGHT, expand=True, fill="x", padx=5)
         
-        # 5. 실시간 로그 (grid, 좌측 log_frame 내부)
         self.log_frame.columnconfigure(0, weight=1)
         self.log_frame.rowconfigure(0, weight=1)
         self.log_text.grid(row=0, column=0, sticky='nsew')
@@ -242,7 +226,7 @@ class AutoTradingGUI:
         self.ax.tick_params(axis='x', colors='white')
         self.ax.tick_params(axis='y', colors='white')
         
-        self.ax.set_facecolor('#161b22') # 플롯 영역 배경색
+        self.ax.set_facecolor('#161b22') 
         
         self.fig.tight_layout()
         self.canvas.draw()
@@ -252,28 +236,21 @@ class AutoTradingGUI:
         
         self.ax.clear()
         
-        # 최근 200개 데이터만 추출 
         plot_df = df.tail(200).copy()
         x_index = np.arange(len(plot_df))
         
-        # 1. 캔들 색상 및 높이 계산
         up = plot_df['close'] >= plot_df['open']
         col = np.where(up, '#27A199', '#E74C3C') 
         
-        # 캔들 몸통 높이: |종가 - 시가|
         bar_height = abs(plot_df['close'] - plot_df['open'])
-        # 캔들 몸통 시작점: min(종가, 시가)
         bar_bottom = np.minimum(plot_df['open'], plot_df['close'])
 
-        # 2. 캔들 꼬리 (Wicks: High and Low) 그리기
         self.ax.vlines(x_index, plot_df['low'], plot_df['high'], 
                        color=col, linewidth=1, alpha=0.7)
 
-        # 3. 캔들 몸통 (Bodies: Open and Close) 그리기
         self.ax.bar(x_index, bar_height, bottom=bar_bottom, 
                     color=col, linewidth=0, width=0.8, align='center')
         
-        # 4. 이동평균선 (MA/VWMA) 그리기 
         self.ax.plot(x_index, plot_df['MA50'], label='50-MA', color='#00ff00', 
                      linestyle='-', linewidth=1.5, alpha=0.7)
         self.ax.plot(x_index, plot_df['MA200'], label='200-MA', color='#0000ff', 
@@ -281,14 +258,11 @@ class AutoTradingGUI:
         self.ax.plot(x_index, plot_df['VWMA100'], label='100-VWMA', color='#ffffff', 
                      linestyle='-', linewidth=1.5, alpha=0.7) 
         
-        # 5. 매수 평단 가격 표시 (추가된 부분)
         if self.target_ticker in self.holdings and 'buy_price' in self.holdings[self.target_ticker]:
             buy_price = self.holdings[self.target_ticker]['buy_price']
-            # 최근 200개 데이터에 해당 평단 가격이 표시될 수 있도록 확인 (단순 시각화 목적)
             if plot_df['low'].min() <= buy_price <= plot_df['high'].max():
                  self.ax.axhline(buy_price, color='#FFFF00', linestyle='--', linewidth=1, label=f'Buy @ {buy_price:,.0f}') 
         
-        # 6. 차트 제목 및 레이블 설정
         self.ax.set_title(f"{self.target_ticker}", fontsize=12, color='white')
         self.ax.set_xlabel("Timeframe (Candle Index)", fontsize=10, color='white') 
         self.ax.set_ylabel("KRW", fontsize=10, color='white') 
@@ -298,17 +272,14 @@ class AutoTradingGUI:
         
         self.ax.grid(True, linestyle=':', alpha=0.3, color='#444444') 
         
-        # y축 포맷을 정수(콤마 표시)로 설정
         formatter = FuncFormatter(lambda x, pos: f'{x:,.0f}')
         self.ax.yaxis.set_major_formatter(formatter)
         
-        # X축 눈금을 20개 간격으로 표시
         if len(x_index) > 0:
             step = max(1, len(x_index) // 10)
             self.ax.set_xticks(x_index[::step])
             self.ax.set_xticklabels(x_index[::step], rotation=45, ha='right')
         
-        # Dark mode 색상 설정
         self.ax.set_facecolor('#161b22') 
         self.fig.set_facecolor('#0d1117') 
         self.ax.tick_params(axis='x', colors='white')
@@ -352,7 +323,7 @@ class AutoTradingGUI:
             self.master.update()
             
             try:
-                # Upbit API를 통해 KRW 잔고 조회
+                
                 balance = self.upbit.get_balance("KRW") 
                 
                 if balance is not None:
@@ -472,16 +443,11 @@ class AutoTradingGUI:
             load_time = int(self.data_load_time_var.get())
             log_save_time_hours = int(self.log_save_time_var.get())
             trade_ratio = int(self.trade_ratio_var.get())
-
-            shutdown_time_input = self.shutdown_time_var.get().strip()
-            shutdown_time_hours = None
-            if shutdown_time_input:
-                shutdown_time_hours = int(shutdown_time_input)
             
-            if load_time <= 0 or log_save_time_hours <= 0 or not (0 <= trade_ratio <= 100) or (shutdown_time_hours is not None and shutdown_time_hours <= 0):
+            if load_time <= 0 or log_save_time_hours <= 0 or not (0 <= trade_ratio <= 100):
                 raise ValueError
         except ValueError:
-            messagebox.showerror("입력 오류", "설정값(로딩 시간, 로그 주기, 트레이딩 금액, 예약 종료 시간)을 확인해 주세요.")
+            messagebox.showerror("입력 오류", "설정값(로딩 시간, 로그 주기, 트레이딩 금액)을 확인해 주세요.")
             return
 
         self.trading_active = True
@@ -494,6 +460,8 @@ class AutoTradingGUI:
 
         self.start_button.config(state='disabled')
         self.stop_button.config(state='normal')
+        self.immediate_buy_button.config(state='normal')
+        self.immediate_sell_button.config(state='normal')
         
         self.holdings = {}
 
@@ -502,7 +470,6 @@ class AutoTradingGUI:
         timeframe_map = {'1분': 'minute1', '3분': 'minute3', '5분': 'minute5', '10분': 'minute10', '15분': 'minute15', 
                          '30분': 'minute30', '1시간': 'hour1', '4시간': 'hour4', '1일': 'day', '1주': 'week'}
         
-        # 5분봉_50선_트레이딩 전략은 5분봉으로 강제
         if strategy == '5분봉_50선_트레이딩':
             timeframe = 'minute5'
             timeframe_label = '5분'
@@ -524,10 +491,6 @@ class AutoTradingGUI:
         else:
              self._log(f"매매 희망 종목: {tickers}")
         self._log(f"로그 저장 주기: {log_save_time_hours} 시간")
-        if shutdown_time_hours is not None:
-            self._log(f"예약 종료: {shutdown_time_hours} 시간 후")
-        else:
-            self._log("예약 종료: 설정되지 않음 (수동 종료)")
         self._log("--------------------------")
 
         self.trading_thread = threading.Thread(target=self._run_trading_loop, 
@@ -539,32 +502,80 @@ class AutoTradingGUI:
                                                 args=(log_save_time_hours,))
         self.log_save_thread.daemon = True
         self.log_save_thread.start()
-
-        if shutdown_time_hours is not None:
-            self.shutdown_timer_thread = threading.Thread(target=self._run_shutdown_timer,
-                                                          args=(shutdown_time_hours,))
-            self.shutdown_timer_thread.daemon = True
-            self.shutdown_timer_thread.start()
-
-    def _run_shutdown_timer(self, shutdown_time_hours):
-        """설정된 시간 후 트레이딩을 종료하는 타이머 루프"""
-        shutdown_time_seconds = shutdown_time_hours * 3600
-        self._log(f"예약 종료 타이머 시작. {shutdown_time_hours} 시간 ({shutdown_time_seconds}초) 후 종료 예정.")
-
-        try:
-            for _ in range(shutdown_time_seconds):
-                if not self.trading_active:
-                    break
-                time.sleep(1)
-            
-            if self.trading_active:
-                self._log("예약 종료 시간이 도달했습니다. 트레이딩을 종료합니다.")
-                self.master.after(0, self._stop_trading)
-
-        except Exception as e:
-            self._log(f"예약 종료 타이머 중 오류 발생: {e}")
         
-        self._log("예약 종료 타이머 루프 종료.")
+    def _immediate_buy(self):
+        """매수 조건과 관계없이 시장가로 즉시 매수 실행"""
+        if not self.trading_active:
+            self._log("즉시 매수 실패: 트레이딩이 활성화되지 않았습니다.")
+            return
+
+        ticker = self.target_ticker
+        if ticker == "N/A" or not ticker or ticker not in self.ticker_input_var.get().upper():
+             if ticker == "N/A" or not ticker:
+                 self._log("즉시 매수 실패: 대상 종목이 선택되지 않았습니다. 매매 희망 종목을 확인하세요.")
+             else:
+                 self._log(f"즉시 매수 실패: {ticker}는 매매 희망 종목 목록에 없습니다.")
+             return
+
+        def execute_manual_buy():
+            try:
+                current_price = pyupbit.get_current_price(ticker)
+                if current_price is None:
+                    self._log(f"즉시 매수 실패: {ticker} 현재 가격을 조회할 수 없습니다.")
+                    return
+            except Exception as e:
+                self._log(f"즉시 매수 실패: 현재 가격 조회 중 오류 발생: {e}")
+                return
+
+            self._log(f"--- [즉시 매수] 요청 시작: {ticker} @ {current_price:,.0f} 원 ---")
+            
+            mode = self.mode_var.get()
+
+            if mode == 'TRADING':
+                self._execute_buy(ticker, current_price)
+                if ticker in self.holdings:
+                    self.holdings[ticker]['manual_buy'] = True
+                    self._log(f"[즉시 매수] 완료. 이제 전략의 매도 조건에 따라 매도가 진행됩니다.")
+            elif mode == 'SIMULATION' or mode == 'DEVELOPMENT':
+                if ticker not in self.holdings:
+                    self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False, 'manual_buy': True}
+                    self._log(f"[즉시 매수] (가상) 완료. 이제 전략의 매도 조건에 따라 매도가 진행됩니다.")
+                else:
+                    self._log(f"즉시 매수 실패: {ticker}를 이미 보유 중입니다. 현재 전략: {self.strategy_var.get()}")
+
+        threading.Thread(target=execute_manual_buy, daemon=True).start()
+
+
+    def _immediate_sell(self):
+        """보유 중인 코인을 매수 조건과 관계없이 전량 매도 실행"""
+        if not self.trading_active:
+            self._log("즉시 매도 실패: 트레이딩이 활성화되지 않았습니다.")
+            return
+
+        ticker = self.target_ticker
+        if ticker == "N/A" or not ticker:
+            self._log("즉시 매도 실패: 대상 종목이 선택되지 않았습니다. 매매 희망 종목을 확인하세요.")
+            return
+
+        if ticker not in self.holdings:
+            self._log(f"즉시 매도 실패: {ticker}를 보유하고 있지 않습니다.")
+            return
+
+        def execute_manual_sell():
+            self._log(f"--- [즉시 매도] 요청 시작: {ticker} 전량 매도 ---")
+            
+            mode = self.mode_var.get()
+            
+            if mode == 'TRADING':
+                self._execute_sell(ticker, is_half_sell=False)
+            elif mode == 'SIMULATION' or mode == 'DEVELOPMENT':
+                if ticker in self.holdings:
+                    del self.holdings[ticker]
+                    self._log(f"[즉시 매도] (가상) 완료. 보유 기록이 삭제되었습니다.")
+                else:
+                    self._log(f"즉시 매도 실패: {ticker} 보유 기록이 이미 삭제되었거나 찾을 수 없습니다.")
+
+        threading.Thread(target=execute_manual_sell, daemon=True).start()
 
     def _run_log_save_loop(self, save_interval_hours):
         """설정된 시간마다 로그를 파일로 저장하는 루프"""
@@ -607,20 +618,20 @@ class AutoTradingGUI:
         try:
             trade_ratio = int(self.trade_ratio_var.get()) / 100.0
             
-            # 잔고 조회
+            
             krw_balance = self.upbit.get_balance("KRW") 
             if krw_balance is None:
                 self._log("매수 실패: KRW 잔고 조회 실패.")
                 return
             
-            # 주문 금액 계산 및 최소 주문 금액(5,000 KRW) 체크
+            
             order_amount = krw_balance * trade_ratio
             MIN_ORDER_KRW = 5000
             
             if order_amount >= MIN_ORDER_KRW:
                 self._log(f"매수 신호({ticker}). 시장가 매수 주문 시도 (금액: {order_amount:,.0f} KRW, 비율: {trade_ratio*100:.0f}%)")
                 
-                # 실제 매수 주문 API 호출
+                
                 result = self.upbit.buy_market_order(ticker, order_amount)
                 
                 if result is None or 'error' in result:
@@ -628,7 +639,7 @@ class AutoTradingGUI:
                     self._log(f"매수 실패: {err_msg}")
                 else:
                     self._log(f"매수 주문 성공 (UUID: {result.get('uuid', 'N/A')}).")
-                    # 주문 성공 시 holdings에 기록 (정확한 체결가/수량 확인을 위한 로직 추가 필요)
+                    
                     self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
                     
             else:
@@ -649,7 +660,7 @@ class AutoTradingGUI:
             target_coin_balance = [bal for bal in holdings if bal['currency'] == coin_symbol]
             
             if target_coin_balance:
-                # Upbit API는 소수점 8자리까지의 정밀도를 요구하므로 float 사용
+                
                 total_volume = float(target_coin_balance[0]['balance'])
                 
                 volume_to_sell = total_volume * 0.5 if is_half_sell else total_volume
@@ -657,7 +668,7 @@ class AutoTradingGUI:
                 if volume_to_sell > 0:
                     self._log(f"매도 신호({ticker}). 시장가 매도 주문 시도 (수량: {volume_to_sell}, {'절반' if is_half_sell else '전량'})")
                     
-                    # 실제 매도 주문 API 호출
+                    
                     sell_result = self.upbit.sell_market_order(ticker, volume_to_sell)
                     
                     if sell_result is None or 'error' in sell_result:
@@ -670,7 +681,7 @@ class AutoTradingGUI:
                             if ticker in self.holdings:
                                 self.holdings[ticker]['half_sold'] = True
                         else:
-                            # 보유 기록 삭제 (전량 매도 완료)
+                            
                             if ticker in self.holdings:
                                 del self.holdings[ticker]
                 else:
@@ -687,19 +698,17 @@ class AutoTradingGUI:
         raw_action = "Wait"
         current_price = df.iloc[-1]['close']
         
-        # 캔들 데이터가 200개 미만이면 판단 불가
         if len(df) < 200:
             return "Wait", current_price
             
-        # 캔들 데이터가 2개 미만이거나 MA50, MA200, VWMA100 값이 NaN이면 판단 불가
         if len(df) < 2 or df['MA50'].iloc[-1] is np.nan or df['MA200'].iloc[-1] is np.nan or df['VWMA100'].iloc[-1] is np.nan:
             return "Wait", current_price
 
-        # 현재와 직전 캔들 데이터
+        
         current_candle = df.iloc[-1]
         prev_candle = df.iloc[-2]
         
-        # 현재와 직전 지표 값
+        
         ma50_current = current_candle['MA50']
         ma200_current = current_candle['MA200']
         vwma100_current = current_candle['VWMA100']
@@ -708,16 +717,13 @@ class AutoTradingGUI:
         prev_ma200 = prev_candle['MA200']
         prev_vwma100 = prev_candle['VWMA100']
 
-        # ------------------------------------------------
-        # 1. 매수 조건 (Buy)
-        # ------------------------------------------------
+        
         if ticker not in self.holdings:
-            # 1-1. 이평선 정배열 (최근 50개 캔들)
-            # 모든 50개 캔들에 대해 200 > 100 > 50 이평선이 유지되어야 함
+            
             ma_trend_ok = (df['MA200'].tail(50) > df['VWMA100'].tail(50)).all() and \
                           (df['VWMA100'].tail(50) > df['MA50'].tail(50)).all()
             
-            # 1-2. 50MA 돌파 (직전 캔들이 50MA를 상향 돌파했고, 현재 캔들이 50MA보다 위에 있는 경우)
+            
             is_prev_breakout = (prev_candle['close'] > prev_ma50) and \
                                (prev_candle['open'] <= prev_ma50)
             
@@ -731,95 +737,91 @@ class AutoTradingGUI:
                 self._log(f"매수 조건 만족: 정배열({ma_trend_ok}), 50MA 상향 돌파({is_breakout})")
                 
                 if mode == 'TRADING':
-                    self._execute_buy(ticker, current_price) # 실제 매수 주문 실행
-                    # 실제 주문 체결을 기다려야 하지만, 여기서는 즉시 holdings에 기록
-                    # 정확한 체결 정보를 받기 전까지는 임시 기록
+                    self._execute_buy(ticker, current_price) 
+                    
                     self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
                 elif mode == 'SIMULATION':
-                     # SIMULATION 모드에서만 가상 매수 기록
+                     
                      self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
             else:
-                # 매수 대기 중 로그 추가
+                
                 if not ma_trend_ok:
                     self._log(f"매수 대기: 정배열 조건 미달 (MA200 > VWMA100 > MA50 불만족)")
                 elif not is_breakout:
                     self._log(f"매수 대기: 50MA 상향 돌파 조건 미달 (직전캔들 돌파: {is_prev_breakout}, 현재캔들 위: {is_current_above_ma50})")
 
-        # ------------------------------------------------
-        # 2. 매도/손절 조건 (Sell/Hold)
-        # ------------------------------------------------
+        
         elif ticker in self.holdings:
-            raw_action = "Hold" # 일단 보유 상태로 설정
+            raw_action = "Hold" 
             buy_price = self.holdings[ticker]['buy_price']
             is_half_sold = self.holdings[ticker].get('half_sold', False)
             
-            # 2-1. 절반 매도 (200MA에 캔들이 닿으면) - 절반 매도 플래그가 False일 때만
+            
             if not is_half_sold:
-                # 캔들의 고가(High)가 200MA보다 같거나 높을 경우
+                
                 if current_candle['high'] >= ma200_current:
-                    self.holdings[ticker]['half_sold'] = True # 플래그만 변경하고 실제 매도는 다음 루프에서 처리
+                    self.holdings[ticker]['half_sold'] = True 
                     
                     if mode == 'TRADING':
                          self._execute_sell(ticker, is_half_sell=True)
-                    else: # SIMULATION 모드에서 절반 매도 처리
+                    else: 
                         raw_action = "Sell (Half)" 
                         self._log(f"가상 절반 매도 (이익 실현): 200MA({ma200_current:,.0f}) 도달. 현재가격:{current_price:,.0f}원")
                     
-                    # 매도 처리 후 다음 로직 건너뛰기
+                    
                     return "Hold", current_price
             
-            # 2-2. 나머지 절반 매도 (50MA 하향 돌파 + 1% 이상 수익) - 절반 매도 플래그가 True일 때
+            
             if is_half_sold:
                 profit_rate = ((current_price / buy_price) - 1) * 100
                 
-                # 50MA 하향 돌파 (현재 종가 < 50MA, 직전 종가 >= 50MA)
+                
                 is_trailing_sell_signal = (current_candle['close'] < ma50_current) and \
                                           (prev_candle['close'] >= prev_ma50)
                 
-                # 1% 이상 수익 조건
+                
                 is_profitable = profit_rate >= 1.0
 
-                # 50MA 하향 돌파 및 1% 이상 수익일 때
+                
                 if is_trailing_sell_signal and is_profitable:
-                    raw_action = "Sell" # 전량 매도
+                    raw_action = "Sell" 
                     self._log(f"나머지 절반 매도 조건 만족: 50MA 하향 돌파 및 수익 1% 이상 ({profit_rate:+.2f}%)")
                     
                     if mode == 'TRADING':
                         self._execute_sell(ticker, is_half_sell=False)
-                    else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
+                    else: 
                         del self.holdings[ticker]
                 
-                # 50MA 하향 이탈 및 3개 연속 캔들 닿음 조건 (수익률 1% 미만일 때 추가)
+                
                 else:
-                    # 50MA 보다 캔들 고가(High)가 낮은 캔들이 3개 연속인지 확인
+                    
                     is_below_ma50 = df.tail(3).apply(lambda x: x['high'] < x['MA50'], axis=1).all()
                     
                     if not is_profitable and is_below_ma50:
-                        raw_action = "Sell" # 전량 매도
+                        raw_action = "Sell" 
                         self._log(f"나머지 절반 매도 조건 만족: 수익 1% 미만({profit_rate:+.2f}%) & 50MA 아래 3개 연속 캔들({is_below_ma50})")
                         
                         if mode == 'TRADING':
                              self._execute_sell(ticker, is_half_sell=False)
-                        else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
+                        else: 
                              del self.holdings[ticker]
                              
                     else:
                         self._log(f"보유 중: 나머지 절반 매도 대기. 50MA 하향 돌파({is_trailing_sell_signal}), 수익률({profit_rate:+.2f}%)")
             
-            # 2-3. 전량 손절 (50MA 하향 돌파) - 절반 매도 플래그가 False일 때
+            
             else:
-                 # 50MA 하향 돌파 (캔들 꼬리 포함 닿으면 안됨 -> 캔들 저가(low)가 50MA보다 낮을 경우 손절)
-                 # *요청대로 '캔들 전체가 하향 돌파'는 캔들의 low가 50MA보다 낮을 경우로 해석합니다.
+                 
                  is_stop_loss_signal = current_candle['low'] < ma50_current
                  
                  if is_stop_loss_signal:
-                     raw_action = "Sell" # 전량 매도 (손절)
+                     raw_action = "Sell" 
                      profit_rate = ((current_price / buy_price) - 1) * 100
                      self._log(f"손절 조건 만족: 50MA 하향 돌파 (저가:{current_candle['low']:,.0f}, MA50:{ma50_current:,.0f}). 수익률: {profit_rate:+.2f}%")
                      
                      if mode == 'TRADING':
                          self._execute_sell(ticker, is_half_sell=False)
-                     else: # SIMULATION 모드에서 전량 매도 후 보유 기록 삭제
+                     else: 
                          del self.holdings[ticker]
                  else:
                     profit_rate = ((current_price / buy_price) - 1) * 100
@@ -844,7 +846,7 @@ class AutoTradingGUI:
                 if tickers:
                     current_tickers = tickers
                 elif is_development_mode:
-                    current_tickers = ['KRW-BTC'] # 개발 모드 기본값
+                    current_tickers = ['KRW-BTC'] 
                     self.master.after(0, lambda: self.status_text.set(f"개발 모드 / 종목 미입력: KRW-BTC 로딩 중"))
                 
                 
@@ -862,14 +864,14 @@ class AutoTradingGUI:
                     
                     selected_timeframe_label = self.ma_timeframe_var.get()
                     
-                    # 5분봉_50선_트레이딩 전략은 5분봉으로 고정
+                    
                     if strategy == '5분봉_50선_트레이딩':
                          selected_interval = 'minute5'
                          selected_timeframe_label = '5분'
                     else:
                          selected_interval = timeframe_map.get(selected_timeframe_label, 'day')
                     
-                    # 캔들 데이터 로드
+                    
                     df = pyupbit.get_ohlcv(target_ticker, interval=selected_interval, count=400) 
                     
                     current_price = None
@@ -877,28 +879,28 @@ class AutoTradingGUI:
                     
                     if df is not None and len(df) >= 200:
                         
-                        # 지표 계산
+                        
                         df['MA50'] = self._calculate_moving_average(df, 50)
                         df['MA200'] = self._calculate_moving_average(df, 200)
                         df['VWMA100'] = self._calculate_vwma(df, 100) 
 
                         current_price = df.iloc[-1]['close'] 
                         
-                        # 차트 업데이트
+                        
                         self.master.after(0, lambda: self._draw_chart(df, selected_timeframe_label))
                     
-                    # DEVELOPMENT Mode Specific Logging
+                    
                     if is_development_mode and df is not None and len(df) >= 200:
                         
                         ma50_current = df['MA50'].iloc[-1]
                         ma200_current = df['MA200'].iloc[-1]
                         vwma100_current = df['VWMA100'].iloc[-1]
                         
-                        # 상태창 업데이트
+                        
                         status_msg = f"개발 모드 ({target_ticker}) @ {current_price:,.0f} 원 ({selected_timeframe_label} 로드 완료)"
                         self.master.after(0, lambda: self.status_text.set(status_msg))
                         
-                        # 로그에 상세 정보 출력
+                        
                         self._log(f"--- 개발 모드 데이터 로깅: {target_ticker} ({selected_timeframe_label}) ---")
                         self._log(f"현재 가격: {current_price:,.0f} 원")
                         self._log(f"MA50: {ma50_current:,.0f} 원 / MA200: {ma200_current:,.0f} 원 / VWMA100: {vwma100_current:,.0f} 원")
@@ -907,10 +909,10 @@ class AutoTradingGUI:
                             recent_trend_df = df.tail(200).copy()
                             self._log(f"캔들 및 이평선 추세 데이터 (최근 {len(recent_trend_df)}개): \n{recent_trend_df[['close', 'MA50', 'MA200', 'VWMA100']].to_string()}")
                     
-                    # SIMULATION/TRADING Mode Specific Logic
+                    
                     elif not is_development_mode:
                         
-                        # 현재 가격 재조회 (캔들 데이터가 부족하거나 없을 경우)
+                        
                         if current_price is None:
                             current_price = pyupbit.get_current_price(target_ticker)
 
@@ -918,32 +920,24 @@ class AutoTradingGUI:
                             
                             if strategy == '5분봉_50선_트레이딩':
                                 raw_action, current_price = self._strategy_5min_ma50(target_ticker, df, mode)
-                            # elif strategy == '이동평균매매':
-                            #     raw_action = self._strategy_moving_average(target_ticker, df, mode)
+                            
                             else:
                                 raw_action = "Wait"
                             
                             
-                            # ------------------------------------------------
-                            # 2. [SIMULATION vs TRADING] 주문 실행 또는 가상 기록 (strategy_5min_ma50에서 이미 처리)
-                            # ------------------------------------------------
-                            # strategy_5min_ma50에서 직접 SIMULATION/TRADING 모드에 따른 holdings/execute_buy/sell 처리를 하므로,
-                            # 여기서는 상태 업데이트 및 로깅만 수행
-
                             
-                            # ------------------------------------------------
-                            # 3. 상태 업데이트 및 로깅
-                            # ------------------------------------------------
+                            
                             korean_status = action_map.get(raw_action, "알 수 없음") 
                             
                             profit_rate_str = ""
                             if target_ticker in self.holdings:
                                 buy_price = self.holdings[target_ticker]['buy_price']
                                 profit_rate = ((current_price / buy_price) - 1) * 100
-                                profit_rate_str = f" (수익률: {profit_rate:+.2f}%, {'매도 대기 중' if self.holdings[target_ticker].get('half_sold') else '절반 대기 중'})"
+                                buy_type = "즉시 매수" if self.holdings[target_ticker].get('manual_buy') else "전략 매수"
+                                profit_rate_str = f" (수익률: {profit_rate:+.2f}%, {'매도 대기 중' if self.holdings[target_ticker].get('half_sold') else '절반 대기 중'}, 매수: {buy_type})"
 
                             
-                            # 상태창 업데이트
+                            
                             new_status = f"{target_ticker} ({korean_status}) @ {current_price:,.0f} 원{profit_rate_str}"
                             self.master.after(0, lambda: self.status_text.set(new_status))
                             
@@ -954,7 +948,7 @@ class AutoTradingGUI:
                             self._log(f"{target_ticker} 현재가 데이터를 불러오지 못했습니다.")
                             
                     else:
-                        # 데이터 로드 실패 또는 데이터 불충분
+                        
                         self.master.after(0, lambda: self.status_text.set(f"{target_ticker} 데이터 로드 실패/불충분"))
                         self._log(f"데이터 로드 실패: {target_ticker} 캔들 데이터를 불러오지 못했거나 200개 미만입니다.")
 
@@ -985,6 +979,8 @@ class AutoTradingGUI:
         
         self.start_button.config(state='normal')
         self.stop_button.config(state='disabled')
+        self.immediate_buy_button.config(state='disabled')
+        self.immediate_sell_button.config(state='disabled')
         
         self._log("트레이딩 종료 요청됨. 로그 저장 중...")
         
@@ -1017,6 +1013,5 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     app = AutoTradingGUI(root)
-    # 윈도우 닫기 이벤트 시 트레이딩 종료 로직 실행
     root.protocol("WM_DELETE_WINDOW", lambda: [app._stop_trading() if app.trading_thread else None, root.destroy()])
     root.mainloop()
