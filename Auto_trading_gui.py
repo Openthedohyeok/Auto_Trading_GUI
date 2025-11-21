@@ -14,7 +14,7 @@ from matplotlib.ticker import FuncFormatter
 import telegram 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v0d.02.0a" 
+APP_VERSION = "v0d.02.0b" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -55,7 +55,7 @@ class AutoTradingGUI:
         else:
              messagebox.showwarning("Telegram 경고", ".env 파일에서 Telegram API 키 또는 Chat ID를 불러올 수 없습니다.")
 
-        self.min_trade_volume = 0 
+        # self.min_trade_volume = 0 # 최소 거래 대금 관련 변수 제거
         self.holdings = {} 
         self.target_ticker = "N/A" 
         
@@ -451,34 +451,9 @@ class AutoTradingGUI:
         tickers = [t.strip() for t in self.ticker_input_var.get().upper().split(',') if t.strip()]
         auto_select = self.auto_select_var.get()
         
-        if auto_select and self.mode_var.get() != 'DEVELOPMENT':
-            dialog_title = "최소 거래 대금 설정"
-            
-            dialog_prompt = "최소 거래 대금을 입력 후 확인 버튼을 누르세요 (단위: 만원, 예: 100 (100만원))"
-            
-            initial_value = str(self.min_trade_volume // 10000)
-            
-            min_volume_manwon_str = simpledialog.askstring(dialog_title, dialog_prompt, 
-                                                            parent=self.master, initialvalue=initial_value)
-            
-            if min_volume_manwon_str is None:
-                self._log("최소 거래 대금 입력이 취소되었습니다. 트레이딩을 시작할 수 없습니다.")
-                return
-
-            try:
-                min_volume_manwon = int(min_volume_manwon_str)
-                if min_volume_manwon < 0:
-                    raise ValueError
-                
-                self.min_trade_volume = min_volume_manwon * 10000
-                
-                self._log(f"최소 거래 대금: {min_volume_manwon:,.0f} 만원 ({self.min_trade_volume:,.0f} 원)으로 설정되었습니다.")
-            except ValueError:
-                messagebox.showerror("입력 오류", "최소 거래 대금은 0 이상의 정수(만원 단위)로 입력해야 합니다.")
-                self._log("최소 거래 대금 입력 오류.")
-                return
         
-        elif not tickers and not auto_select:
+        
+        if not tickers and not auto_select:
              messagebox.showwarning("종목 설정 오류", "매매 희망 종목을 입력하거나 '종목 자동 선택'을 활성화해야 합니다.")
              return
              
@@ -534,7 +509,6 @@ class AutoTradingGUI:
         self._log(f"데이터 로딩 시간: {load_time}초")
         self._log(f"종목 자동 선택: {auto_select}")
         if auto_select and mode != 'DEVELOPMENT':
-             self._log(f"  ㄴ 최소 거래 대금: {self.min_trade_volume:,.0f} 원")
              self._log(f"  ㄴ 대상 종목: {'전체 KRW 종목' if not tickers else str(tickers)}")
         else:
              self._log(f"매매 희망 종목: {tickers}")
