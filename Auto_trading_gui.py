@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.02" 
+APP_VERSION = "v00.01.03" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -44,6 +44,7 @@ class AutoTradingGUI:
         self.min_trade_volume = 0 
         self.holdings = {} 
         self.target_ticker = "N/A" 
+        self.buy_candle_time = {}
         
         self._create_frames()
         self._create_widgets()
@@ -464,6 +465,7 @@ class AutoTradingGUI:
         self.immediate_sell_button.config(state='normal')
         
         self.holdings = {}
+        self.buy_candle_time = {}
 
         strategy = self.strategy_var.get()
         timeframe_label = self.ma_timeframe_var.get()
@@ -570,6 +572,8 @@ class AutoTradingGUI:
                 self._execute_sell(ticker, is_half_sell=False)
             elif mode == 'SIMULATION' or mode == 'DEVELOPMENT':
                 if ticker in self.holdings:
+                    if ticker in self.buy_candle_time:
+                        del self.buy_candle_time[ticker]
                     del self.holdings[ticker]
                     self._log(f"[즉시 매도] (가상) 완료. 보유 기록이 삭제되었습니다.")
                 else:
@@ -683,6 +687,8 @@ class AutoTradingGUI:
                         else:
                             
                             if ticker in self.holdings:
+                                if ticker in self.buy_candle_time:
+                                    del self.buy_candle_time[ticker]
                                 del self.holdings[ticker]
                 else:
                     self._log(f"매도 실패: 매도할 수량({coin_symbol})이 0입니다.")
@@ -697,6 +703,7 @@ class AutoTradingGUI:
         
         raw_action = "Wait"
         current_price = df.iloc[-1]['close']
+        current_candle_time = df.index[-1]
         
         if len(df) < 200:
             return "Wait", current_price
@@ -743,9 +750,11 @@ class AutoTradingGUI:
                     self._execute_buy(ticker, current_price) 
                     
                     self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
+                    self.buy_candle_time[ticker] = current_candle_time
                 elif mode == 'SIMULATION':
                      
                      self.holdings[ticker] = {'buy_price': current_price, 'buy_volume': 0.0, 'half_sold': False}
+                     self.buy_candle_time[ticker] = current_candle_time
             else:
                 
                 if not ma_trend_ok:
@@ -758,7 +767,10 @@ class AutoTradingGUI:
             raw_action = "Hold" 
             buy_price = self.holdings[ticker]['buy_price']
             is_half_sold = self.holdings[ticker].get('half_sold', False)
+
             
+            is_after_buy_candle = current_candle_time > self.buy_candle_time.get(ticker, pd.Timestamp('1970-01-01'))
+
             
             if not is_half_sold:
                 
@@ -801,6 +813,8 @@ class AutoTradingGUI:
                         if mode == 'TRADING':
                             self._execute_sell(ticker, is_half_sell=False)
                         else: 
+                            if ticker in self.buy_candle_time:
+                                del self.buy_candle_time[ticker]
                             del self.holdings[ticker]
                 
                 
@@ -819,13 +833,15 @@ class AutoTradingGUI:
                             if mode == 'TRADING':
                                 self._execute_sell(ticker, is_half_sell=False)
                             else: 
+                                if ticker in self.buy_candle_time:
+                                    del self.buy_candle_time[ticker]
                                 del self.holdings[ticker]
                              
                     else:
                         self._log(f"보유 중: 나머지 절반 매도 대기. 50MA 하향 돌파({is_trailing_sell_signal}), 수익률({profit_rate:+.2f}%)")
             
             
-            else:
+            elif is_after_buy_candle:
                  
                  is_stop_loss_signal = current_candle['low'] < ma50_current
                  
@@ -841,10 +857,17 @@ class AutoTradingGUI:
                          if mode == 'TRADING':
                              self._execute_sell(ticker, is_half_sell=False)
                          else: 
+                             if ticker in self.buy_candle_time:
+                                 del self.buy_candle_time[ticker]
                              del self.holdings[ticker]
                  else:
                     profit_rate = ((current_price / buy_price) - 1) * 100
                     self._log(f"보유 중: 손절 대기. 50MA 하향 돌파({is_stop_loss_signal}), 수익률({profit_rate:+.2f}%)")
+            
+            
+            elif not is_after_buy_candle:
+                self._log(f"보유 중: 손절 로직 대기. 매수 캔들({self.buy_candle_time.get(ticker)})이 종료되지 않았습니다.")
+
 
         return raw_action, current_price
 
