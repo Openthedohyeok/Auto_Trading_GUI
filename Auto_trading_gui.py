@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.03" 
+APP_VERSION = "v00.01.04" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -730,8 +730,8 @@ class AutoTradingGUI:
         
         if ticker not in self.holdings:
             
-            ma_trend_ok = (df['MA200'].tail(50) > df['VWMA100'].tail(50)).all() and \
-                          (df['VWMA100'].tail(50) > df['MA50'].tail(50)).all()
+            ma_trend_ok = (df['MA200'].tail(12) > df['VWMA100'].tail(12)).all() and \
+                          (df['VWMA100'].tail(12) > df['MA50'].tail(12)).all()
             
             
             is_prev_breakout = (prev_candle['close'] > prev_ma50) and \
