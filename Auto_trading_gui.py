@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.05" 
+APP_VERSION = "v00.01.06" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -740,11 +740,13 @@ class AutoTradingGUI:
             is_current_above_ma50 = (current_candle['open'] > ma50_current) and \
                                     (current_candle['close'] > ma50_current)
             
-            is_breakout = is_prev_breakout and is_current_above_ma50
+            is_near_ma200 = abs(prev_candle['close'] - prev_ma200) < (prev_candle['close'] * 0.005)
+            
+            is_breakout = is_prev_breakout and is_current_above_ma50 and (not is_near_ma200)
 
             if ma_trend_ok and is_breakout:
                 raw_action = "Buy"
-                self._log(f"매수 조건 만족: 정배열({ma_trend_ok}), 50MA 상향 돌파({is_breakout})")
+                self._log(f"매수 조건 만족: 정배열({ma_trend_ok}), 50MA 상향 돌파({is_breakout}), 200MA 근접({is_near_ma200})")
                 
                 if mode == 'TRADING':
                     self._execute_buy(ticker, current_price) 
@@ -759,8 +761,10 @@ class AutoTradingGUI:
                 
                 if not ma_trend_ok:
                     self._log(f"매수 대기: 정배열 조건 미달 (MA200 > VWMA100 > MA50 불만족)")
-                elif not is_breakout:
+                elif not (is_prev_breakout and is_current_above_ma50):
                     self._log(f"매수 대기: 50MA 상향 돌파 조건 미달 (직전캔들 돌파: {is_prev_breakout}, 현재캔들 위: {is_current_above_ma50})")
+                elif is_near_ma200:
+                    self._log(f"매수 대기: 200MA에 너무 근접하여 (0.5% 미만) 매수 조건 미달")
 
         
         elif ticker in self.holdings:
