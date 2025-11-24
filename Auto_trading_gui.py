@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.ticker import FuncFormatter 
 
 # 버전 관리 변수 설정
-APP_VERSION = "v00.01.04" 
+APP_VERSION = "v00.01.05" 
 LOG_DIR = "../TRADING_LOG" 
 
 # 전역 디버깅/개발 설정
@@ -843,7 +843,19 @@ class AutoTradingGUI:
             
             elif is_after_buy_candle:
                  
-                 is_stop_loss_signal = current_candle['low'] < ma50_current
+                 
+                 stop_loss_level = ma50_current * (1 - 0.007)
+                 
+                 
+                 is_stop_loss_signal_1 = current_candle['low'] < stop_loss_level
+                 
+                 
+                 is_stop_loss_signal_2 = (prev_candle['open'] < prev_ma50) and \
+                                         (prev_candle['close'] < prev_ma50) and \
+                                         (current_candle['close'] < current_candle['open'])
+                 
+                 
+                 is_stop_loss_signal = is_stop_loss_signal_1 or is_stop_loss_signal_2
                  
                  if is_stop_loss_signal:
                      
@@ -852,7 +864,7 @@ class AutoTradingGUI:
                      else:
                          raw_action = "Sell" 
                          profit_rate = ((current_price / buy_price) - 1) * 100
-                         self._log(f"손절 조건 만족: 50MA 하향 돌파 (저가:{current_candle['low']:,.0f}, MA50:{ma50_current:,.0f}). 수익률: {profit_rate:+.2f}%")
+                         self._log(f"손절 조건 만족: 50MA 0.7% 하향 돌파 또는 두 번째 손절 조건(두 캔들 연속 하향 추세) 충족. 수익률: {profit_rate:+.2f}%")
                          
                          if mode == 'TRADING':
                              self._execute_sell(ticker, is_half_sell=False)
@@ -862,7 +874,7 @@ class AutoTradingGUI:
                              del self.holdings[ticker]
                  else:
                     profit_rate = ((current_price / buy_price) - 1) * 100
-                    self._log(f"보유 중: 손절 대기. 50MA 하향 돌파({is_stop_loss_signal}), 수익률({profit_rate:+.2f}%)")
+                    self._log(f"보유 중: 손절 대기. 50MA 0.7% 하향 돌파({is_stop_loss_signal_1}), 두 번째 조건({is_stop_loss_signal_2}), 수익률({profit_rate:+.2f}%)")
             
             
             elif not is_after_buy_candle:
